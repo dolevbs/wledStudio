@@ -7,6 +7,7 @@
 #include <string>
 
 using byte = uint8_t;
+using boolean = bool;
 
 #ifndef PROGMEM
 #define PROGMEM
@@ -28,6 +29,7 @@ inline void set_mock_millis(uint64_t value) {
 }
 } // namespace wled_studio
 
+#if !defined(WLED_STUDIO_USE_UPSTREAM)
 inline uint32_t millis() {
   return static_cast<uint32_t>(wled_studio::g_mock_millis);
 }
@@ -54,8 +56,13 @@ inline long random(long min, long max) {
   return min + (std::rand() % (max - min));
 }
 
-class MockSerial {
+class Print {
  public:
+  virtual ~Print() = default;
+
+  virtual size_t write(uint8_t) { return 1; }
+  virtual size_t write(const uint8_t*, size_t size) { return size; }
+
   template <typename T>
   void print(const T&) {}
 
@@ -64,6 +71,17 @@ class MockSerial {
 
   template <typename... Args>
   void printf(const char*, Args...) {}
+
+  template <typename... Args>
+  void printf_P(const char* fmt, Args... args) {
+    printf(fmt, args...);
+  }
+};
+
+class MockSerial : public Print {
+ public:
+  virtual ~MockSerial() = default;
 };
 
 inline MockSerial Serial;
+#endif

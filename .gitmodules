@@ -1,3 +1,6 @@
 [submodule "vendor/WLED"]
 	path = vendor/WLED
 	url = https://github.com/Aircoookie/WLED.git
+[submodule "vendor/FastLED"]
+	path = vendor/FastLED
+	url = https://github.com/FastLED/FastLED.git

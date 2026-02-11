@@ -13,11 +13,20 @@ BASE_DEFINES=(
   -DFASTLED_FORCE_SOFTWARE_SPI
   -DFASTLED_NO_ASM
   -DWLED_STUDIO_USE_UPSTREAM=${USE_UPSTREAM}
+  -D__time_t_defined
+  -DWLED_DISABLE_ALEXA
+  -DWLED_DISABLE_MQTT
+  -DWLED_DISABLE_INFRARED
+  -DWLED_DISABLE_HUESYNC
+  -DWLED_DISABLE_OTA
+  -DWLED_DISABLE_LOXONE
+  -DWLED_DISABLE_WEBSOCKETS
 )
 
 COMMON_FLAGS=(
   -O3
   -std=c++20
+  -include /src/src/headless/Headless_Overrides.h
   -s WASM=1
   -s MODULARIZE=1
   -s EXPORT_NAME=WLEDModule
@@ -25,6 +34,8 @@ COMMON_FLAGS=(
   -s ENVIRONMENT=web,worker
   -s EXPORTED_FUNCTIONS='["_malloc","_free","_wled_init","_wled_json_command","_wled_render_frame","_wled_get_buffer_size","_wled_get_last_error"]'
   -s EXPORTED_RUNTIME_METHODS='["cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]'
+  -I/src/vendor/FastLED/src/platforms/wasm/compiler
+  -I/src/vendor/FastLED/src
   -I/src/src/headless
   -I/src/vendor/WLED/wled00
 )
