@@ -1,5 +1,6 @@
 "use client";
 
+import { COLOR_SCHEME_OPTIONS, EFFECT_OPTIONS, getEffectOption, type EffectControlKey } from "@/config/simulationOptions";
 import type { StudioState } from "@/state/studioStore";
 
 interface ControlPanelProps {
@@ -14,6 +15,8 @@ interface ControlPanelProps {
     | "setSerpentine"
     | "setGaps"
     | "setControl"
+    | "setColorScheme"
+    | "setSegmentColor"
     | "setRunning"
   >;
   onReset: () => void;
@@ -23,8 +26,67 @@ function getSegment(command: StudioState["command"]) {
   return Array.isArray(command.seg) ? command.seg[0] : command.seg;
 }
 
+function colorsMatch(a: number[] | undefined, b: number[]): boolean {
+  if (!Array.isArray(a) || a.length < 3) {
+    return false;
+  }
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
+function getSelectedSchemeId(segment: ReturnType<typeof getSegment>): string {
+  for (const scheme of COLOR_SCHEME_OPTIONS) {
+    if (
+      (segment?.pal ?? 0) === scheme.pal &&
+      colorsMatch(segment?.col?.[0], scheme.col[0]) &&
+      colorsMatch(segment?.col?.[1], scheme.col[1]) &&
+      colorsMatch(segment?.col?.[2], scheme.col[2])
+    ) {
+      return scheme.id;
+    }
+  }
+  return "custom";
+}
+
+function toHexChannel(value: number): string {
+  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+}
+
+function rgbToHex(color: number[] | undefined): string {
+  if (!Array.isArray(color) || color.length < 3) {
+    return "#000000";
+  }
+  return `#${toHexChannel(color[0])}${toHexChannel(color[1])}${toHexChannel(color[2])}`;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) {
+    return [0, 0, 0];
+  }
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  return [Number.isFinite(r) ? r : 0, Number.isFinite(g) ? g : 0, Number.isFinite(b) ? b : 0];
+}
+
+function controlValue(segment: ReturnType<typeof getSegment>, key: EffectControlKey): number {
+  if (key === "sx") return segment?.sx ?? 128;
+  if (key === "ix") return segment?.ix ?? 128;
+  if (key === "pal") return segment?.pal ?? 0;
+  if (key === "c1") return segment?.c1 ?? 0;
+  return segment?.c2 ?? 0;
+}
+
 export function ControlPanel({ state, onReset }: ControlPanelProps) {
-  const segment = getSegment(state.command) ?? { fx: 8, sx: 128, ix: 128 };
+  const segment = getSegment(state.command) ?? { fx: 8, sx: 128, ix: 128, pal: 0, c1: 0, c2: 0 };
+  const selectedEffect = segment.fx ?? 8;
+  const effectConfig = getEffectOption(selectedEffect);
+  const hasKnownEffect = Boolean(effectConfig);
+  const selectedSchemeId = getSelectedSchemeId(segment);
+  const controls = effectConfig?.controls ?? [
+    { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+    { key: "ix", label: "Intensity", min: 0, max: 255, defaultValue: 128 }
+  ];
 
   return (
     <section className="panel">
@@ -109,36 +171,64 @@ export function ControlPanel({ state, onReset }: ControlPanelProps) {
         </label>
 
         <label>
-          Effect ({segment.fx ?? 8})
-          <input
-            type="range"
-            min={0}
-            max={120}
-            value={segment.fx ?? 8}
-            onChange={(event) => state.setControl("fx", Number(event.target.value))}
-          />
+          Effect
+          <select value={selectedEffect} onChange={(event) => state.setControl("fx", Number(event.target.value))}>
+            {!hasKnownEffect ? <option value={selectedEffect}>Custom ({selectedEffect})</option> : null}
+            {EFFECT_OPTIONS.map((effect) => (
+              <option key={effect.id} value={effect.id}>
+                {effect.label} ({effect.id})
+              </option>
+            ))}
+          </select>
         </label>
 
         <label>
-          Speed ({segment.sx ?? 128})
-          <input
-            type="range"
-            min={0}
-            max={255}
-            value={segment.sx ?? 128}
-            onChange={(event) => state.setControl("sx", Number(event.target.value))}
-          />
+          Color Scheme
+          <select
+            value={selectedSchemeId}
+            onChange={(event) => {
+              const scheme = COLOR_SCHEME_OPTIONS.find((entry) => entry.id === event.target.value) ?? COLOR_SCHEME_OPTIONS[0];
+              if (scheme) {
+                state.setColorScheme(scheme);
+              }
+            }}
+          >
+            {selectedSchemeId === "custom" ? <option value="custom">Custom</option> : null}
+            {COLOR_SCHEME_OPTIONS.map((scheme) => (
+              <option key={scheme.id} value={scheme.id}>
+                {scheme.label}
+              </option>
+            ))}
+          </select>
         </label>
 
+        {controls.map((control) => (
+          <label key={control.key}>
+            {control.label} ({controlValue(segment, control.key)})
+            <input
+              type="range"
+              min={control.min}
+              max={control.max}
+              step={control.step ?? 1}
+              value={controlValue(segment, control.key)}
+              onChange={(event) => state.setControl(control.key, Number(event.target.value))}
+            />
+          </label>
+        ))}
+      </div>
+
+      <div className="grid two">
         <label>
-          Intensity ({segment.ix ?? 128})
-          <input
-            type="range"
-            min={0}
-            max={255}
-            value={segment.ix ?? 128}
-            onChange={(event) => state.setControl("ix", Number(event.target.value))}
-          />
+          Primary Color
+          <input type="color" value={rgbToHex(segment?.col?.[0])} onChange={(event) => state.setSegmentColor(0, hexToRgb(event.target.value))} />
+        </label>
+        <label>
+          Secondary Color
+          <input type="color" value={rgbToHex(segment?.col?.[1])} onChange={(event) => state.setSegmentColor(1, hexToRgb(event.target.value))} />
+        </label>
+        <label>
+          Tertiary Color
+          <input type="color" value={rgbToHex(segment?.col?.[2])} onChange={(event) => state.setSegmentColor(2, hexToRgb(event.target.value))} />
         </label>
       </div>
 

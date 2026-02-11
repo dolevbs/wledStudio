@@ -32,7 +32,12 @@ struct EngineState {
   uint8_t effect = 0;
   uint8_t speed = 128;
   uint8_t intensity = 128;
+  uint8_t palette = 0;
+  uint8_t custom1 = 0;
+  uint8_t custom2 = 0;
   Rgb primary{255, 170, 0};
+  Rgb secondary{0, 0, 0};
+  Rgb tertiary{0, 0, 0};
   uint32_t now = 0;
   std::string last_error;
 };
@@ -111,44 +116,60 @@ bool extract_bool(std::string_view json, std::string_view key, bool& out) {
   return false;
 }
 
-bool extract_first_color(std::string_view json, Rgb& out) {
+bool extract_color_slot(std::string_view json, int slot, Rgb& out) {
+  if (slot < 0) {
+    return false;
+  }
+
   const size_t col_pos = json.find("\"col\"");
   if (col_pos == std::string_view::npos) {
     return false;
   }
 
-  const size_t first_open = json.find('[', col_pos);
-  if (first_open == std::string_view::npos) {
+  const size_t outer_open = json.find('[', col_pos);
+  if (outer_open == std::string_view::npos) {
     return false;
   }
 
-  const size_t second_open = json.find('[', first_open + 1);
-  if (second_open == std::string_view::npos) {
-    return false;
-  }
-
-  size_t cursor = second_open + 1;
-  int values[3] = {0, 0, 0};
-  for (int i = 0; i < 3; i++) {
-    while (cursor < json.size() && (std::isspace(static_cast<unsigned char>(json[cursor])) || json[cursor] == ',')) {
-      cursor++;
-    }
-
-    size_t end = cursor;
-    while (end < json.size() && std::isdigit(static_cast<unsigned char>(json[end]))) {
-      end++;
-    }
-
-    if (end == cursor) {
+  size_t cursor = outer_open + 1;
+  for (int current_slot = 0; current_slot <= slot; current_slot++) {
+    const size_t color_open = json.find('[', cursor);
+    if (color_open == std::string_view::npos) {
       return false;
     }
 
-    values[i] = std::atoi(std::string{json.substr(cursor, end - cursor)}.c_str());
-    cursor = end;
-  }
+    cursor = color_open + 1;
+    int values[3] = {0, 0, 0};
+    for (int channel = 0; channel < 3; channel++) {
+      while (cursor < json.size() && (std::isspace(static_cast<unsigned char>(json[cursor])) || json[cursor] == ',')) {
+        cursor++;
+      }
 
-  out = {clamp_u8(values[0]), clamp_u8(values[1]), clamp_u8(values[2])};
-  return true;
+      size_t end = cursor;
+      while (end < json.size() && std::isdigit(static_cast<unsigned char>(json[end]))) {
+        end++;
+      }
+
+      if (end == cursor) {
+        return false;
+      }
+
+      values[channel] = std::atoi(std::string{json.substr(cursor, end - cursor)}.c_str());
+      cursor = end;
+    }
+
+    const size_t color_close = json.find(']', cursor);
+    if (color_close == std::string_view::npos) {
+      return false;
+    }
+    cursor = color_close + 1;
+
+    if (current_slot == slot) {
+      out = {clamp_u8(values[0]), clamp_u8(values[1]), clamp_u8(values[2])};
+      return true;
+    }
+  }
+  return false;
 }
 
 Rgb apply_brightness(Rgb c) {
@@ -157,6 +178,26 @@ Rgb apply_brightness(Rgb c) {
   c.g = static_cast<uint8_t>((static_cast<int>(c.g) * scale) / 255);
   c.b = static_cast<uint8_t>((static_cast<int>(c.b) * scale) / 255);
   return c;
+}
+
+Rgb scale_color(Rgb c, float scale) {
+  c.r = clamp_u8(static_cast<int>(std::round(static_cast<float>(c.r) * scale)));
+  c.g = clamp_u8(static_cast<int>(std::round(static_cast<float>(c.g) * scale)));
+  c.b = clamp_u8(static_cast<int>(std::round(static_cast<float>(c.b) * scale)));
+  return c;
+}
+
+bool has_visible_color(Rgb c) {
+  return c.r > 0 || c.g > 0 || c.b > 0;
+}
+
+Rgb blend_color(Rgb a, Rgb b, float t) {
+  const float clamped = (std::max)(0.0f, (std::min)(1.0f, t));
+  return {
+      clamp_u8(static_cast<int>(std::round(static_cast<float>(a.r) + (static_cast<float>(b.r) - static_cast<float>(a.r)) * clamped))),
+      clamp_u8(static_cast<int>(std::round(static_cast<float>(a.g) + (static_cast<float>(b.g) - static_cast<float>(a.g)) * clamped))),
+      clamp_u8(static_cast<int>(std::round(static_cast<float>(a.b) + (static_cast<float>(b.b) - static_cast<float>(a.b)) * clamped))),
+  };
 }
 
 void set_pixel(int idx, Rgb c) {
@@ -233,8 +274,12 @@ uint32_t hash_noise(uint32_t value) {
 }
 
 void fill_solid() {
-  const Rgb c = apply_brightness(g_state.primary);
   for (int i = 0; i < g_state.led_count; i++) {
+    const float blend = g_state.custom1 > 0
+        ? (static_cast<float>(i) / static_cast<float>((std::max)(1, g_state.led_count - 1))) * (static_cast<float>(g_state.custom1) / 255.0f)
+        : 0.0f;
+    const Rgb base = blend > 0.0f ? blend_color(g_state.primary, g_state.secondary, blend) : g_state.primary;
+    const Rgb c = apply_brightness(base);
     set_pixel(i, c);
   }
 }
@@ -242,15 +287,22 @@ void fill_solid() {
 void fill_blink() {
   const uint32_t cycle = 120U + static_cast<uint32_t>(255 - g_state.speed) * 6U;
   const bool on = ((g_state.now / cycle) % 2U) == 0U;
-  const Rgb c = on ? apply_brightness(g_state.primary) : Rgb{0, 0, 0};
+  const float off_scale = g_state.custom1 > 0 ? static_cast<float>(g_state.custom1) / 255.0f : 0.2f;
+  Rgb off{0, 0, 0};
+  if (has_visible_color(g_state.secondary)) {
+    off = apply_brightness(scale_color(g_state.secondary, off_scale));
+  }
+  const Rgb c = on ? apply_brightness(g_state.primary) : off;
   for (int i = 0; i < g_state.led_count; i++) {
     set_pixel(i, c);
   }
 }
 
 void fill_breath() {
-  const float phase = static_cast<float>(g_state.now % 4096U) / 4096.0f;
-  const float breath = 0.5f + 0.5f * std::sin(phase * 6.2831853f);
+  const int period = (std::max)(512, 4096 + (128 - static_cast<int>(g_state.speed)) * 24);
+  const float phase = static_cast<float>(g_state.now % static_cast<uint32_t>(period)) / static_cast<float>(period);
+  const float depth = g_state.custom1 > 0 ? static_cast<float>(g_state.custom1) / 255.0f : 1.0f;
+  const float breath = 1.0f - depth + depth * (0.5f + 0.5f * std::sin(phase * 6.2831853f));
   const int scaled = static_cast<int>(std::round(static_cast<float>(g_state.brightness) * breath));
   const uint8_t prev = g_state.brightness;
   g_state.brightness = clamp_u8(scaled);
@@ -258,39 +310,89 @@ void fill_breath() {
   g_state.brightness = prev;
 }
 
-void fill_rainbow() {
+void fill_rainbow(bool cycle_mode) {
   const uint8_t sat = static_cast<uint8_t>(180 + (g_state.intensity / 4));
   const uint8_t base = static_cast<uint8_t>((g_state.now * (g_state.speed + 1U) / 24U) & 0xFFU);
   const int len = (std::max)(g_state.led_count, 1);
+  const float spread_scale = cycle_mode ? 1.0f + static_cast<float>(g_state.custom1) / 64.0f : 1.0f;
+  const auto palette_color = [sat](uint8_t pos) -> Rgb {
+    const float t = static_cast<float>(pos) / 255.0f;
+    switch (g_state.palette % 5U) {
+      case 1:
+        return t < 0.5f
+            ? blend_color(g_state.primary, g_state.secondary, t * 2.0f)
+            : blend_color(g_state.secondary, g_state.tertiary, (t - 0.5f) * 2.0f);
+      case 2: {
+        const float wave = (std::sin(t * 6.2831853f) + 1.0f) * 0.5f;
+        return blend_color(g_state.primary, g_state.secondary, wave);
+      }
+      case 3: {
+        const int slot = static_cast<int>(std::floor(t * 3.0f)) % 3;
+        if (slot == 0) return g_state.primary;
+        if (slot == 1) return g_state.secondary;
+        return g_state.tertiary;
+      }
+      case 4:
+        return blend_color(g_state.tertiary, g_state.primary, t);
+      default:
+        return blend_color(g_state.primary, hsv_to_rgb(pos, sat, 255), 0.35f);
+    }
+  };
   for (int i = 0; i < g_state.led_count; i++) {
-    uint8_t hue = static_cast<uint8_t>(base + (i * 255 / len));
+    const int offset = static_cast<int>(std::floor(static_cast<float>(i) * 255.0f * spread_scale / static_cast<float>(len)));
+    uint8_t hue = static_cast<uint8_t>(base + offset);
 #if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
     const uint8_t wobble = ::sin8_t(static_cast<uint8_t>(base + i));
     hue = static_cast<uint8_t>((static_cast<uint16_t>(hue) + wobble) / 2U);
 #endif
-    set_pixel(i, apply_brightness(hsv_to_rgb(hue, sat, 255)));
+    if (g_state.palette == 0U) {
+      set_pixel(i, apply_brightness(hsv_to_rgb(hue, sat, 255)));
+    } else {
+      set_pixel(i, apply_brightness(palette_color(hue)));
+    }
   }
 }
 
 void fill_sparkle() {
   fill_solid();
   const int sparkles = (std::max)(1, (g_state.led_count * (g_state.intensity + 16)) / 2048);
+  const int speed_factor = (std::max)(1, 31 + ((static_cast<int>(g_state.speed) - 128) / 4));
+  const float secondary_mix = static_cast<float>(g_state.custom1) / 255.0f;
+  Rgb sparkle = has_visible_color(g_state.secondary) ? g_state.secondary : Rgb{255, 255, 255};
   for (int i = 0; i < sparkles; i++) {
-    const uint32_t n = hash_noise(static_cast<uint32_t>(i) * 0x9E3779B9U + g_state.now * 31U);
+    const uint32_t n = hash_noise(static_cast<uint32_t>(i) * 0x9E3779B9U + g_state.now * static_cast<uint32_t>(speed_factor));
     const int idx = static_cast<int>(n % static_cast<uint32_t>((std::max)(g_state.led_count, 1)));
-    set_pixel(idx, apply_brightness({255, 255, 255}));
+    Rgb sparkle_base = sparkle;
+    if (g_state.palette > 0U) {
+      const uint8_t pos = static_cast<uint8_t>((n + g_state.now) & 0xFFU);
+      sparkle_base = blend_color(g_state.primary, g_state.secondary, static_cast<float>(pos) / 255.0f);
+    }
+    const Rgb sparkle_final = secondary_mix > 0.0f ? blend_color(sparkle_base, g_state.tertiary, secondary_mix) : sparkle_base;
+    set_pixel(idx, apply_brightness(sparkle_final));
   }
 }
 
 void fill_chase() {
-  const int stride = (std::max)(2, 14 - (g_state.speed / 20));
+  const int stride = g_state.custom1 > 0 ? (std::max)(2, 2 + (g_state.custom1 / 18)) : (std::max)(2, 14 - (g_state.speed / 20));
   const int head = static_cast<int>((g_state.now / 40U) % static_cast<uint32_t>((std::max)(g_state.led_count, 1)));
   const Rgb fg = apply_brightness(g_state.primary);
-  const Rgb bg = apply_brightness({0, 0, 0});
+  const Rgb bg = has_visible_color(g_state.tertiary) ? apply_brightness(scale_color(g_state.tertiary, 0.45f)) : Rgb{0, 0, 0};
+  const int tail = g_state.custom2 / 52;
 
   for (int i = 0; i < g_state.led_count; i++) {
-    const bool lit = ((i + head) % stride) == 0;
-    set_pixel(i, lit ? fg : bg);
+    const int phase = (i + head) % stride;
+    if (phase == 0) {
+      set_pixel(i, fg);
+    } else if (tail > 0 && phase <= tail) {
+      const float fade = 1.0f - static_cast<float>(phase) / static_cast<float>(tail + 1);
+      set_pixel(i, {
+          clamp_u8(static_cast<int>(std::round(static_cast<float>(fg.r) * fade + static_cast<float>(bg.r) * (1.0f - fade)))),
+          clamp_u8(static_cast<int>(std::round(static_cast<float>(fg.g) * fade + static_cast<float>(bg.g) * (1.0f - fade)))),
+          clamp_u8(static_cast<int>(std::round(static_cast<float>(fg.b) * fade + static_cast<float>(bg.b) * (1.0f - fade)))),
+      });
+    } else {
+      set_pixel(i, bg);
+    }
   }
 }
 
@@ -311,8 +413,10 @@ void render_effect() {
       fill_breath();
       break;
     case 8:
+      fill_rainbow(false);
+      break;
     case 9:
-      fill_rainbow();
+      fill_rainbow(true);
       break;
     case 20:
       fill_sparkle();
@@ -321,7 +425,7 @@ void render_effect() {
       fill_chase();
       break;
     default:
-      fill_rainbow();
+      fill_rainbow(false);
       break;
   }
 }
@@ -378,9 +482,25 @@ void wled_json_command(char* json_string) {
       g_state.intensity = clamp_u8(parsed_value);
     }
 
+    if (extract_int(json, "pal", parsed_value)) {
+      g_state.palette = clamp_u8(parsed_value);
+    }
+    if (extract_int(json, "c1", parsed_value)) {
+      g_state.custom1 = clamp_u8(parsed_value);
+    }
+    if (extract_int(json, "c2", parsed_value)) {
+      g_state.custom2 = clamp_u8(parsed_value);
+    }
+
     Rgb parsed_color{};
-    if (extract_first_color(json, parsed_color)) {
+    if (extract_color_slot(json, 0, parsed_color)) {
       g_state.primary = parsed_color;
+    }
+    if (extract_color_slot(json, 1, parsed_color)) {
+      g_state.secondary = parsed_color;
+    }
+    if (extract_color_slot(json, 2, parsed_color)) {
+      g_state.tertiary = parsed_color;
     }
   } catch (const std::exception& ex) {
     set_error(std::string{"json command failed: "} + ex.what());

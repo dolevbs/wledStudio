@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { ColorSchemeOption } from "@/config/simulationOptions";
 import { sanitizeTopology, sanitizeWledEnvelope } from "@/io/sanitize";
 import type { SimulationConfig, StudioTopology, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
 
@@ -17,7 +18,9 @@ export interface StudioState {
   setLedCount: (count: number) => void;
   setSerpentine: (enabled: boolean) => void;
   setGaps: (gaps: string) => void;
-  setControl: (key: "on" | "bri" | "fx" | "sx" | "ix", value: number | boolean) => void;
+  setControl: (key: "on" | "bri" | "fx" | "sx" | "ix" | "pal" | "c1" | "c2", value: number | boolean) => void;
+  setColorScheme: (scheme: Pick<ColorSchemeOption, "pal" | "col">) => void;
+  setSegmentColor: (slot: 0 | 1 | 2, color: [number, number, number]) => void;
   setRawJson: (raw: string) => void;
   applyRawJson: () => string | null;
   setRunning: (running: boolean) => void;
@@ -43,6 +46,9 @@ const DEFAULT_COMMAND: WledJsonEnvelope = {
     fx: 8,
     sx: 128,
     ix: 128,
+    pal: 0,
+    c1: 0,
+    c2: 0,
     col: [[255, 170, 0], [0, 0, 0], [0, 0, 0]]
   }
 };
@@ -162,10 +168,68 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         next.on = value;
       } else if (key === "bri" && typeof value === "number") {
         next.bri = Math.max(0, Math.min(255, Math.round(value)));
-      } else if ((key === "fx" || key === "sx" || key === "ix") && typeof value === "number") {
+      } else if ((key === "fx" || key === "sx" || key === "ix" || key === "pal" || key === "c1" || key === "c2") && typeof value === "number") {
         const seg = next.seg as WledSegmentPayload;
         seg[key] = Math.max(0, Math.min(255, Math.round(value)));
       }
+
+      return {
+        command: next,
+        rawJson: stringifyCommand(next)
+      };
+    }),
+
+  setSegmentColor: (slot, color) =>
+    set((state) => {
+      const seg = (Array.isArray(state.command.seg) ? state.command.seg[0] : state.command.seg) ?? {};
+      const existing = Array.isArray(seg.col)
+        ? seg.col.map((entry) =>
+            Array.isArray(entry) && entry.length >= 3
+              ? [
+                  Math.max(0, Math.min(255, Math.round(entry[0]))),
+                  Math.max(0, Math.min(255, Math.round(entry[1]))),
+                  Math.max(0, Math.min(255, Math.round(entry[2])))
+                ]
+              : [0, 0, 0]
+          )
+        : [[255, 170, 0], [0, 0, 0], [0, 0, 0]];
+      while (existing.length < 3) {
+        existing.push([0, 0, 0]);
+      }
+      existing[slot] = [
+        Math.max(0, Math.min(255, Math.round(color[0]))),
+        Math.max(0, Math.min(255, Math.round(color[1]))),
+        Math.max(0, Math.min(255, Math.round(color[2])))
+      ];
+
+      const next: WledJsonEnvelope = {
+        ...state.command,
+        seg: {
+          ...seg,
+          col: existing as [[number, number, number], [number, number, number], [number, number, number]]
+        }
+      };
+
+      return {
+        command: next,
+        rawJson: stringifyCommand(next)
+      };
+    }),
+
+  setColorScheme: (scheme) =>
+    set((state) => {
+      const next: WledJsonEnvelope = {
+        ...state.command,
+        seg: {
+          ...(Array.isArray(state.command.seg) ? state.command.seg[0] : state.command.seg),
+          pal: Math.max(0, Math.min(255, Math.round(scheme.pal))),
+          col: scheme.col.map(([r, g, b]) => [
+            Math.max(0, Math.min(255, Math.round(r))),
+            Math.max(0, Math.min(255, Math.round(g))),
+            Math.max(0, Math.min(255, Math.round(b)))
+          ])
+        }
+      };
 
       return {
         command: next,

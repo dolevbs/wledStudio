@@ -1,6 +1,18 @@
 export interface EffectOption {
   id: number;
   label: string;
+  controls: EffectControl[];
+}
+
+export type EffectControlKey = "sx" | "ix" | "pal" | "c1" | "c2";
+
+export interface EffectControl {
+  key: EffectControlKey;
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  defaultValue: number;
 }
 
 export interface ColorSchemeOption {
@@ -11,13 +23,67 @@ export interface ColorSchemeOption {
 }
 
 export const EFFECT_OPTIONS: EffectOption[] = [
-  { id: 0, label: "Solid" },
-  { id: 1, label: "Blink" },
-  { id: 2, label: "Breath" },
-  { id: 8, label: "Rainbow" },
-  { id: 9, label: "Rainbow Cycle" },
-  { id: 20, label: "Sparkle" },
-  { id: 28, label: "Chase" }
+  {
+    id: 0,
+    label: "Solid",
+    controls: [
+      { key: "c1", label: "Blend", min: 0, max: 255, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 1,
+    label: "Blink",
+    controls: [
+      { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
+      { key: "c1", label: "Off Glow", min: 0, max: 255, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 2,
+    label: "Breath",
+    controls: [
+      { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
+      { key: "c1", label: "Depth", min: 0, max: 255, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 8,
+    label: "Rainbow",
+    controls: [
+      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+      { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
+      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 9,
+    label: "Rainbow Cycle",
+    controls: [
+      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+      { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
+      { key: "c1", label: "Cycle Spread", min: 0, max: 255, defaultValue: 0 },
+      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 20,
+    label: "Sparkle",
+    controls: [
+      { key: "sx", label: "Twinkle Rate", min: 0, max: 255, defaultValue: 128 },
+      { key: "ix", label: "Density", min: 0, max: 255, defaultValue: 128 },
+      { key: "c1", label: "Secondary Mix", min: 0, max: 255, defaultValue: 0 },
+      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
+    ]
+  },
+  {
+    id: 28,
+    label: "Chase",
+    controls: [
+      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+      { key: "c1", label: "Spacing", min: 0, max: 255, defaultValue: 0 },
+      { key: "c2", label: "Tail", min: 0, max: 255, defaultValue: 0 }
+    ]
+  }
 ];
 
 export const COLOR_SCHEME_OPTIONS: ColorSchemeOption[] = [
@@ -75,4 +141,8 @@ export const COLOR_SCHEME_OPTIONS: ColorSchemeOption[] = [
 
 export function findColorSchemeById(id: string): ColorSchemeOption | undefined {
   return COLOR_SCHEME_OPTIONS.find((scheme) => scheme.id === id);
+}
+
+export function getEffectOption(effectId: number): EffectOption | undefined {
+  return EFFECT_OPTIONS.find((effect) => effect.id === effectId);
 }

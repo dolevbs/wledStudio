@@ -21,6 +21,9 @@ function sanitizeSegment(input: unknown, warnings: string[]): WledSegmentPayload
   const fx = clampByte(src.fx, 0);
   const sx = clampByte(src.sx, 128);
   const ix = clampByte(src.ix, 128);
+  const pal = clampByte(src.pal, 0);
+  const c1 = clampByte(src.c1, 0);
+  const c2 = clampByte(src.c2, 0);
 
   let col: number[][] = [[255, 170, 0], [0, 0, 0], [0, 0, 0]];
   if (Array.isArray(src.col)) {
@@ -35,7 +38,7 @@ function sanitizeSegment(input: unknown, warnings: string[]): WledSegmentPayload
     warnings.push("Ignored invalid seg.col payload; fallback color palette applied");
   }
 
-  return { fx, sx, ix, col };
+  return { fx, sx, ix, pal, c1, c2, col };
 }
 
 export function sanitizeWledEnvelope(input: unknown): ImportResult<WledJsonEnvelope> {

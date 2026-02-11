@@ -1,123 +1,135 @@
-import * as THREE from "three";
 import type { StudioTopology } from "@/types/studio";
 import { buildLedPositions, buildPhysicalIndexMap } from "@/rendering/topology";
 
+type Vec3 = [number, number, number];
+
 export class StudioRenderer {
   private readonly canvas: HTMLCanvasElement;
-  private readonly renderer: THREE.WebGLRenderer;
-  private readonly scene: THREE.Scene;
-  private readonly camera: THREE.PerspectiveCamera;
-  private mesh: THREE.InstancedMesh | null = null;
+  private readonly ctx: CanvasRenderingContext2D;
   private topology: StudioTopology;
+  private positions: Vec3[] = [];
+  private frame: Uint8Array = new Uint8Array();
+  private dpr = 1;
+  private radius = 4;
+  private scale = 1;
+  private centerX = 0;
+  private centerY = 0;
+  private worldMidX = 0;
+  private worldMidY = 0;
 
   constructor(canvas: HTMLCanvasElement, topology: StudioTopology) {
     this.canvas = canvas;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("2D canvas context is not available");
+    }
+    this.ctx = ctx;
     this.topology = topology;
-
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
-    this.renderer.setClearColor(0x0b0f14, 1);
-
-    this.scene = new THREE.Scene();
-
-    this.camera = new THREE.PerspectiveCamera(42, canvas.clientWidth / Math.max(1, canvas.clientHeight), 0.1, 1000);
-    this.camera.position.set(0, 0, 48);
-
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    keyLight.position.set(5, 12, 8);
-    this.scene.add(keyLight);
-
-    const fillLight = new THREE.AmbientLight(0xffffff, 0.22);
-    this.scene.add(fillLight);
-
-    this.rebuildMesh(topology);
+    this.resize();
+    this.rebuildTopology(topology);
   }
 
   updateTopology(topology: StudioTopology): void {
     this.topology = topology;
-    this.rebuildMesh(topology);
+    this.rebuildTopology(topology);
   }
 
   updateFrame(buffer: Uint8Array): void {
-    if (!this.mesh) {
-      return;
-    }
-
-    const color = new THREE.Color();
-    const instanceCount = Math.min(this.topology.ledCount, Math.floor(buffer.length / 3));
-
-    for (let i = 0; i < instanceCount; i += 1) {
-      const offset = i * 3;
-      color.setRGB(buffer[offset] / 255, buffer[offset + 1] / 255, buffer[offset + 2] / 255);
-      this.mesh.setColorAt(i, color);
-    }
-
-    if (this.mesh.instanceColor) {
-      this.mesh.instanceColor.needsUpdate = true;
-    }
+    this.frame = buffer;
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    const ctx = this.ctx;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#060b12";
+    ctx.fillRect(0, 0, width, height);
+
+    const count = Math.min(this.positions.length, Math.floor(this.frame.length / 3));
+    for (let i = 0; i < count; i += 1) {
+      const [x, y] = this.positions[i];
+      const sx = this.centerX + (x - this.worldMidX) * this.scale;
+      const sy = this.centerY - (y - this.worldMidY) * this.scale;
+
+      const offset = i * 3;
+      const r = this.frame[offset] ?? 0;
+      const g = this.frame[offset + 1] ?? 0;
+      const b = this.frame[offset + 2] ?? 0;
+
+      if (r === 0 && g === 0 && b === 0) {
+        ctx.fillStyle = "#050505";
+      } else {
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      }
+
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   resize(): void {
-    const width = this.canvas.clientWidth;
-    const height = this.canvas.clientHeight;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / Math.max(1, height);
-    this.camera.updateProjectionMatrix();
+    const cssWidth = Math.max(1, this.canvas.clientWidth);
+    const cssHeight = Math.max(1, this.canvas.clientHeight);
+    this.dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+
+    this.canvas.width = Math.floor(cssWidth * this.dpr);
+    this.canvas.height = Math.floor(cssHeight * this.dpr);
+    this.canvas.style.width = `${cssWidth}px`;
+    this.canvas.style.height = `${cssHeight}px`;
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.scale(this.dpr, this.dpr);
+
+    this.centerX = cssWidth / 2;
+    this.centerY = cssHeight / 2;
+    this.recomputeProjection();
   }
 
   dispose(): void {
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      (this.mesh.material as THREE.Material).dispose();
-      this.mesh = null;
-    }
-    this.renderer.dispose();
+    // No external resources to dispose for 2D canvas.
   }
 
-  private rebuildMesh(topology: StudioTopology): void {
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      (this.mesh.material as THREE.Material).dispose();
-      this.mesh = null;
-    }
-
+  private rebuildTopology(topology: StudioTopology): void {
     const physicalIndexMap = buildPhysicalIndexMap(topology.ledCount, topology.gaps);
     const withMap = { ...topology, physicalIndexMap };
-    const positions = buildLedPositions(withMap);
+    this.positions = buildLedPositions(withMap);
+    this.recomputeProjection();
+  }
 
-    const geometry = new THREE.SphereGeometry(0.38, 10, 10);
-    const material = new THREE.MeshStandardMaterial({
-      roughness: 0.25,
-      metalness: 0.1,
-      emissiveIntensity: 1.1,
-      vertexColors: true
-    });
-
-    this.mesh = new THREE.InstancedMesh(geometry, material, topology.ledCount);
-    const matrix = new THREE.Matrix4();
-    for (let i = 0; i < positions.length; i += 1) {
-      const [x, y, z] = positions[i];
-      matrix.makeTranslation(x, y, z);
-      this.mesh.setMatrixAt(i, matrix);
-      this.mesh.setColorAt(i, new THREE.Color(0, 0, 0));
+  private recomputeProjection(): void {
+    if (this.positions.length === 0) {
+      this.scale = 1;
+      this.radius = 4;
+      this.worldMidX = 0;
+      this.worldMidY = 0;
+      return;
     }
 
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) {
-      this.mesh.instanceColor.needsUpdate = true;
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < this.positions.length; i += 1) {
+      const [x, y] = this.positions[i];
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
     }
 
-    this.scene.add(this.mesh);
+    const cssWidth = Math.max(1, this.canvas.clientWidth);
+    const cssHeight = Math.max(1, this.canvas.clientHeight);
+    const margin = 24;
+    const spanX = Math.max(1, maxX - minX + 1);
+    const spanY = Math.max(1, maxY - minY + 1);
+    const scaleX = Math.max(1, (cssWidth - margin * 2) / spanX);
+    const scaleY = Math.max(1, (cssHeight - margin * 2) / spanY);
 
-    const spread = topology.mode === "matrix" ? Math.max(topology.width, topology.height) : Math.max(16, topology.ledCount / 8);
-    this.camera.position.set(0, 0, Math.max(16, spread * 1.6));
-    this.camera.lookAt(0, 0, 0);
+    this.scale = Math.min(scaleX, scaleY);
+    this.radius = Math.max(2, Math.min(12, this.scale * 0.32));
+    this.worldMidX = (minX + maxX) / 2;
+    this.worldMidY = (minY + maxY) / 2;
   }
 }

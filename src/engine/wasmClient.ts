@@ -10,7 +10,11 @@ interface EmscriptenModule {
   HEAPU8: Uint8Array;
 }
 
-type ModuleFactory = () => Promise<EmscriptenModule>;
+interface EmscriptenFactoryOptions {
+  locateFile?: (path: string, prefix: string) => string;
+}
+
+type ModuleFactory = (options?: EmscriptenFactoryOptions) => Promise<EmscriptenModule>;
 
 class WasmBridgeEngine implements WledEngine {
   private readonly module: EmscriptenModule;
@@ -66,17 +70,23 @@ class WasmBridgeEngine implements WledEngine {
 
 async function loadModuleFactory(): Promise<ModuleFactory | null> {
   if (typeof self === "undefined") {
+    console.log("[wasmClient] self is undefined; falling back to software engine");
     return null;
   }
 
   try {
     if (!(self as unknown as { WLEDModule?: ModuleFactory }).WLEDModule) {
+      console.log("[wasmClient] importing /wasm/wled.js");
       importScripts("/wasm/wled.js");
     }
 
     const factory = (self as unknown as { WLEDModule?: ModuleFactory }).WLEDModule;
+    if (!factory) {
+      console.warn("[wasmClient] WLEDModule factory missing after importScripts");
+    }
     return factory ?? null;
-  } catch {
+  } catch (error) {
+    console.warn("[wasmClient] failed to load wasm module factory; using software engine", error);
     return null;
   }
 }
@@ -84,13 +94,24 @@ async function loadModuleFactory(): Promise<ModuleFactory | null> {
 export async function createWledEngine(): Promise<WledEngine> {
   const factory = await loadModuleFactory();
   if (!factory) {
+    console.log("[wasmClient] software engine selected (no wasm factory)");
     return new SoftwareWledEngine();
   }
 
   try {
-    const module = await factory();
+    console.log("[wasmClient] creating wasm engine instance");
+    const module = await factory({
+      locateFile: (path) => {
+        if (path.endsWith(".wasm")) {
+          return `/wasm/${path}`;
+        }
+        return path;
+      }
+    });
+    console.log("[wasmClient] wasm engine ready");
     return new WasmBridgeEngine(module);
-  } catch {
+  } catch (error) {
+    console.warn("[wasmClient] wasm engine creation failed; using software engine", error);
     return new SoftwareWledEngine();
   }
 }

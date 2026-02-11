@@ -33,6 +33,15 @@ export function validateWledEnvelope(payload: WledJsonEnvelope): ValidationResul
     if (seg.ix !== undefined && !isByte(seg.ix)) {
       errors.push("seg.ix must be an integer between 0 and 255");
     }
+    if (seg.pal !== undefined && !isByte(seg.pal)) {
+      errors.push("seg.pal must be an integer between 0 and 255");
+    }
+    if (seg.c1 !== undefined && !isByte(seg.c1)) {
+      errors.push("seg.c1 must be an integer between 0 and 255");
+    }
+    if (seg.c2 !== undefined && !isByte(seg.c2)) {
+      errors.push("seg.c2 must be an integer between 0 and 255");
+    }
     if (seg.col !== undefined) {
       if (!Array.isArray(seg.col) || seg.col.length === 0) {
         errors.push("seg.col must be a non-empty array");

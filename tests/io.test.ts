@@ -12,6 +12,9 @@ describe("io sanitization", () => {
     expect(result.data.bri).toBe(128);
     expect(seg?.sx).toBe(128);
     expect(seg?.ix).toBe(128);
+    expect(seg?.pal).toBe(0);
+    expect(seg?.c1).toBe(0);
+    expect(seg?.c2).toBe(0);
   });
 
   it("sanitizes topology gaps", () => {
@@ -54,11 +57,17 @@ describe("io export", () => {
         fx: 8,
         sx: 128,
         ix: 128,
+        pal: 2,
+        c1: 64,
+        c2: 32,
         col: [[255, 170, 0], [0, 0, 0], [0, 0, 0]]
       }
     });
 
     const parsed = JSON.parse(json);
     expect(parsed["0"].seg.fx).toBe(8);
+    expect(parsed["0"].seg.pal).toBe(2);
+    expect(parsed["0"].seg.c1).toBe(64);
+    expect(parsed["0"].seg.c2).toBe(32);
   });
 });
