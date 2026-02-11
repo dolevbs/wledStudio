@@ -1,0 +1,33 @@
+{
+  "name": "wled-studio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:parity": "vitest run tests/parity",
+    "test:perf": "vitest run tests/perf",
+    "build:wasm": "make wasm",
+    "sync:wled": "make sync-wled",
+    "check:wasm-size": "scripts/check_wasm_size.sh",
+    "ci": "npm run build:wasm && npm run test && npm run check:wasm-size"
+  },
+  "dependencies": {
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.173.0",
+    "zustand": "4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.7",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@types/three": "^0.182.0",
+    "typescript": "5.7.3",
+    "vitest": "2.1.8"
+  }
+}
