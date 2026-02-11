@@ -310,34 +310,35 @@ void fill_breath() {
   g_state.brightness = prev;
 }
 
+Rgb palette_color_lookup(uint8_t pos, uint8_t sat) {
+  const float t = static_cast<float>(pos) / 255.0f;
+  switch (g_state.palette % 5U) {
+    case 1:
+      return t < 0.5f
+          ? blend_color(g_state.primary, g_state.secondary, t * 2.0f)
+          : blend_color(g_state.secondary, g_state.tertiary, (t - 0.5f) * 2.0f);
+    case 2: {
+      const float wave = (std::sin(t * 6.2831853f) + 1.0f) * 0.5f;
+      return blend_color(g_state.primary, g_state.secondary, wave);
+    }
+    case 3: {
+      const int slot = static_cast<int>(std::floor(t * 3.0f)) % 3;
+      if (slot == 0) return g_state.primary;
+      if (slot == 1) return g_state.secondary;
+      return g_state.tertiary;
+    }
+    case 4:
+      return blend_color(g_state.tertiary, g_state.primary, t);
+    default:
+      return blend_color(g_state.primary, hsv_to_rgb(pos, sat, 255), 0.35f);
+  }
+}
+
 void fill_rainbow(bool cycle_mode) {
   const uint8_t sat = static_cast<uint8_t>(180 + (g_state.intensity / 4));
   const uint8_t base = static_cast<uint8_t>((g_state.now * (g_state.speed + 1U) / 24U) & 0xFFU);
   const int len = (std::max)(g_state.led_count, 1);
   const float spread_scale = cycle_mode ? 1.0f + static_cast<float>(g_state.custom1) / 64.0f : 1.0f;
-  const auto palette_color = [sat](uint8_t pos) -> Rgb {
-    const float t = static_cast<float>(pos) / 255.0f;
-    switch (g_state.palette % 5U) {
-      case 1:
-        return t < 0.5f
-            ? blend_color(g_state.primary, g_state.secondary, t * 2.0f)
-            : blend_color(g_state.secondary, g_state.tertiary, (t - 0.5f) * 2.0f);
-      case 2: {
-        const float wave = (std::sin(t * 6.2831853f) + 1.0f) * 0.5f;
-        return blend_color(g_state.primary, g_state.secondary, wave);
-      }
-      case 3: {
-        const int slot = static_cast<int>(std::floor(t * 3.0f)) % 3;
-        if (slot == 0) return g_state.primary;
-        if (slot == 1) return g_state.secondary;
-        return g_state.tertiary;
-      }
-      case 4:
-        return blend_color(g_state.tertiary, g_state.primary, t);
-      default:
-        return blend_color(g_state.primary, hsv_to_rgb(pos, sat, 255), 0.35f);
-    }
-  };
   for (int i = 0; i < g_state.led_count; i++) {
     const int offset = static_cast<int>(std::floor(static_cast<float>(i) * 255.0f * spread_scale / static_cast<float>(len)));
     uint8_t hue = static_cast<uint8_t>(base + offset);
@@ -348,7 +349,7 @@ void fill_rainbow(bool cycle_mode) {
     if (g_state.palette == 0U) {
       set_pixel(i, apply_brightness(hsv_to_rgb(hue, sat, 255)));
     } else {
-      set_pixel(i, apply_brightness(palette_color(hue)));
+      set_pixel(i, apply_brightness(palette_color_lookup(hue, sat)));
     }
   }
 }
@@ -396,6 +397,88 @@ void fill_chase() {
   }
 }
 
+void fill_mapped_effect() {
+  const int len = (std::max)(g_state.led_count, 1);
+  const int seed = g_state.effect;
+  const int variant = seed % 6;
+
+  switch (variant) {
+    case 0: {
+      const uint8_t sat = static_cast<uint8_t>(128 + (g_state.intensity / 2));
+      for (int i = 0; i < g_state.led_count; i++) {
+        float phase = std::fmod(static_cast<float>(i) / static_cast<float>(len) + static_cast<float>(g_state.now) * static_cast<float>(g_state.speed + 8) * 0.00002f + static_cast<float>(seed) * 0.013f, 1.0f);
+        if (phase < 0.0f) phase += 1.0f;
+        const Rgb color = g_state.palette > 0U
+            ? palette_color_lookup(static_cast<uint8_t>(std::floor(phase * 255.0f)), sat)
+            : blend_color(g_state.primary, g_state.secondary, phase);
+        set_pixel(i, apply_brightness(color));
+      }
+      break;
+    }
+    case 1: {
+      const int threshold = 24 + (g_state.intensity * 200 / 255);
+      const float dim = 0.08f + static_cast<float>(g_state.custom1 + 16) / 1024.0f;
+      for (int i = 0; i < g_state.led_count; i++) {
+        const uint32_t n = hash_noise(static_cast<uint32_t>(i) * 0x9E3779B9U + g_state.now * static_cast<uint32_t>(11 + (seed % 17)));
+        const bool lit = static_cast<int>(n & 0xFFU) < threshold;
+        const float sparkle_t = static_cast<float>((n >> 8) & 0xFFU) / 255.0f;
+        const Rgb sparkle = blend_color(g_state.primary, g_state.tertiary, sparkle_t);
+        const Rgb dim_bg = scale_color(g_state.secondary, dim);
+        set_pixel(i, apply_brightness(lit ? sparkle : dim_bg));
+      }
+      break;
+    }
+    case 2: {
+      const uint32_t head_interval = static_cast<uint32_t>((std::max)(12, 42 - (g_state.speed / 8)));
+      const int head = static_cast<int>((g_state.now / head_interval) % static_cast<uint32_t>(len));
+      const int tail = 2 + ((g_state.custom2 + (seed % 32)) / 24);
+      const Rgb bg = has_visible_color(g_state.tertiary) ? scale_color(g_state.tertiary, 0.1f) : Rgb{0, 0, 0};
+      for (int i = 0; i < g_state.led_count; i++) {
+        const int dist = (i - head + len) % len;
+        Rgb color = bg;
+        if (dist <= tail) {
+          const float t = 1.0f - static_cast<float>(dist) / static_cast<float>((std::max)(1, tail));
+          color = blend_color(bg, g_state.primary, t);
+        }
+        set_pixel(i, apply_brightness(color));
+      }
+      break;
+    }
+    case 3: {
+      const int width = 1 + ((seed + g_state.custom1) % 9);
+      const int shift = static_cast<int>(g_state.now / static_cast<uint32_t>((std::max)(14, 64 - (g_state.speed / 5))));
+      for (int i = 0; i < g_state.led_count; i++) {
+        const int band = ((i + shift) / width) % 3;
+        const Rgb color = band == 0 ? g_state.primary : (band == 1 ? g_state.secondary : g_state.tertiary);
+        set_pixel(i, apply_brightness(color));
+      }
+      break;
+    }
+    case 4: {
+      const float speed = 0.002f + static_cast<float>(g_state.speed) / 255.0f * 0.016f;
+      const float tertiary_mix = static_cast<float>(g_state.custom2) / 255.0f;
+      for (int i = 0; i < g_state.led_count; i++) {
+        const float wave = (std::sin(static_cast<float>(i) * (0.2f + static_cast<float>(seed % 7) * 0.04f) + static_cast<float>(g_state.now) * speed) + 1.0f) * 0.5f;
+        const Rgb mixed = blend_color(blend_color(g_state.primary, g_state.secondary, wave), g_state.tertiary, tertiary_mix);
+        set_pixel(i, apply_brightness(mixed));
+      }
+      break;
+    }
+    default: {
+      const uint8_t sat = static_cast<uint8_t>(96 + static_cast<int>(std::round(static_cast<float>(g_state.intensity) * 0.6f)));
+      const uint8_t base = static_cast<uint8_t>((g_state.now * (g_state.speed + 16U) / 18U) & 0xFFU);
+      const float spread = 1.0f + static_cast<float>((seed + g_state.custom1) % 64) / 64.0f;
+      for (int i = 0; i < g_state.led_count; i++) {
+        const int hue_offset = static_cast<int>(std::floor(static_cast<float>(i) * 255.0f * spread / static_cast<float>(len)));
+        const uint8_t hue = static_cast<uint8_t>(base + hue_offset);
+        const Rgb color = g_state.palette > 0U ? palette_color_lookup(hue, sat) : hsv_to_rgb(hue, sat, 255);
+        set_pixel(i, apply_brightness(color));
+      }
+      break;
+    }
+  }
+}
+
 void render_effect() {
   if (!g_state.power) {
     std::fill(g_state.frame_buffer.begin(), g_state.frame_buffer.end(), 0U);
@@ -418,6 +501,13 @@ void render_effect() {
     case 9:
       fill_rainbow(true);
       break;
+    case 37:
+    case 41:
+    case 45:
+    case 57:
+    case 63:
+      fill_rainbow(false);
+      break;
     case 20:
       fill_sparkle();
       break;
@@ -425,7 +515,7 @@ void render_effect() {
       fill_chase();
       break;
     default:
-      fill_rainbow(false);
+      fill_mapped_effect();
       break;
   }
 }

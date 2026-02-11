@@ -1,3 +1,5 @@
+import { WLED_EFFECT_CATALOG } from "@/config/wledEffectCatalog";
+
 export interface EffectOption {
   id: number;
   label: string;
@@ -22,69 +24,97 @@ export interface ColorSchemeOption {
   col: [[number, number, number], [number, number, number], [number, number, number]];
 }
 
-export const EFFECT_OPTIONS: EffectOption[] = [
-  {
-    id: 0,
-    label: "Solid",
-    controls: [
-      { key: "c1", label: "Blend", min: 0, max: 255, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 1,
-    label: "Blink",
-    controls: [
-      { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
-      { key: "c1", label: "Off Glow", min: 0, max: 255, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 2,
-    label: "Breath",
-    controls: [
-      { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
-      { key: "c1", label: "Depth", min: 0, max: 255, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 8,
-    label: "Rainbow",
-    controls: [
-      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
-      { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
-      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 9,
-    label: "Rainbow Cycle",
-    controls: [
-      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
-      { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
-      { key: "c1", label: "Cycle Spread", min: 0, max: 255, defaultValue: 0 },
-      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 20,
-    label: "Sparkle",
-    controls: [
-      { key: "sx", label: "Twinkle Rate", min: 0, max: 255, defaultValue: 128 },
-      { key: "ix", label: "Density", min: 0, max: 255, defaultValue: 128 },
-      { key: "c1", label: "Secondary Mix", min: 0, max: 255, defaultValue: 0 },
-      { key: "pal", label: "Palette Mode", min: 0, max: 4, step: 1, defaultValue: 0 }
-    ]
-  },
-  {
-    id: 28,
-    label: "Chase",
-    controls: [
-      { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
-      { key: "c1", label: "Spacing", min: 0, max: 255, defaultValue: 0 },
-      { key: "c2", label: "Tail", min: 0, max: 255, defaultValue: 0 }
-    ]
+const DEFAULT_CONTROL_LABELS: Record<EffectControlKey, string> = {
+  sx: "Speed",
+  ix: "Intensity",
+  pal: "Palette",
+  c1: "Custom 1",
+  c2: "Custom 2"
+};
+
+const KEY_ORDER: EffectControlKey[] = ["sx", "ix", "c1", "c2"];
+
+function sanitizeControlLabel(label: string, key: EffectControlKey): string {
+  const cleaned = label.replace(/!/g, "").trim();
+  if (!cleaned) {
+    return DEFAULT_CONTROL_LABELS[key];
   }
-];
+  return cleaned;
+}
+
+function deriveControlsFromMetadata(metadata: string): EffectControl[] {
+  if (!metadata.includes("@")) {
+    return [];
+  }
+
+  const rawParams = metadata.split("@")[1]?.split(";")[0] ?? "";
+  const paramTokens = rawParams.split(",").map((token) => token.trim());
+  const controls: EffectControl[] = [];
+
+  for (let i = 0; i < KEY_ORDER.length; i += 1) {
+    const token = paramTokens[i] ?? "";
+    if (!token) {
+      continue;
+    }
+    const key = KEY_ORDER[i];
+    controls.push({
+      key,
+      label: sanitizeControlLabel(token, key),
+      min: 0,
+      max: 255,
+      defaultValue: key === "sx" || key === "ix" ? 128 : 0
+    });
+  }
+
+  if (controls.length === 0) {
+    return [];
+  }
+  return controls;
+}
+
+const CONTROL_OVERRIDES: Record<number, EffectControl[]> = {
+  0: [{ key: "c1", label: "Blend", min: 0, max: 255, defaultValue: 0 }],
+  1: [
+    { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
+    { key: "c1", label: "Off Glow", min: 0, max: 255, defaultValue: 0 }
+  ],
+  2: [
+    { key: "sx", label: "Rate", min: 0, max: 255, defaultValue: 128 },
+    { key: "c1", label: "Depth", min: 0, max: 255, defaultValue: 0 }
+  ],
+  8: [
+    { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+    { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
+    { key: "pal", label: "Palette Mode", min: 0, max: 255, step: 1, defaultValue: 0 }
+  ],
+  9: [
+    { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+    { key: "ix", label: "Saturation", min: 0, max: 255, defaultValue: 128 },
+    { key: "c1", label: "Cycle Spread", min: 0, max: 255, defaultValue: 0 },
+    { key: "pal", label: "Palette Mode", min: 0, max: 255, step: 1, defaultValue: 0 }
+  ],
+  20: [
+    { key: "sx", label: "Twinkle Rate", min: 0, max: 255, defaultValue: 128 },
+    { key: "ix", label: "Density", min: 0, max: 255, defaultValue: 128 },
+    { key: "c1", label: "Secondary Mix", min: 0, max: 255, defaultValue: 0 },
+    { key: "pal", label: "Palette Mode", min: 0, max: 255, step: 1, defaultValue: 0 }
+  ],
+  28: [
+    { key: "sx", label: "Speed", min: 0, max: 255, defaultValue: 128 },
+    { key: "c1", label: "Spacing", min: 0, max: 255, defaultValue: 0 },
+    { key: "c2", label: "Tail", min: 0, max: 255, defaultValue: 0 }
+  ]
+};
+
+export const EFFECT_OPTIONS: EffectOption[] = WLED_EFFECT_CATALOG.map((effect) => {
+  const derived = deriveControlsFromMetadata(effect.metadata);
+  const controls = CONTROL_OVERRIDES[effect.id] ?? derived;
+  return {
+    id: effect.id,
+    label: effect.label,
+    controls
+  };
+});
 
 export const COLOR_SCHEME_OPTIONS: ColorSchemeOption[] = [
   {

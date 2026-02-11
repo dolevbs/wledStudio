@@ -12,6 +12,7 @@
     "test:perf": "vitest run tests/perf",
     "build:wasm": "make wasm",
     "sync:wled": "make sync-wled",
+    "sync:wled-effects": "node scripts/generate_wled_effect_catalog.mjs",
     "check:wasm-size": "scripts/check_wasm_size.sh",
     "ci": "npm run build:wasm && npm run test && npm run check:wasm-size"
   },
