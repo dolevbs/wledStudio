@@ -46,9 +46,6 @@ SOURCES=(
 
 if [[ "${USE_UPSTREAM}" == "1" ]]; then
   SOURCES+=(
-    /src/vendor/WLED/wled00/FX.cpp
-    /src/vendor/WLED/wled00/FX_fcn.cpp
-    /src/vendor/WLED/wled00/FX_2Dfcn.cpp
     /src/vendor/WLED/wled00/wled_math.cpp
   )
 fi

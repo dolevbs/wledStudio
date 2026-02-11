@@ -12,6 +12,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+extern uint8_t sin8_t(uint8_t theta);
+#endif
+
 namespace {
 
 struct Rgb {
@@ -257,26 +261,30 @@ void fill_breath() {
 void fill_rainbow() {
   const uint8_t sat = static_cast<uint8_t>(180 + (g_state.intensity / 4));
   const uint8_t base = static_cast<uint8_t>((g_state.now * (g_state.speed + 1U) / 24U) & 0xFFU);
-  const int len = std::max(g_state.led_count, 1);
+  const int len = (std::max)(g_state.led_count, 1);
   for (int i = 0; i < g_state.led_count; i++) {
-    const uint8_t hue = static_cast<uint8_t>(base + (i * 255 / len));
+    uint8_t hue = static_cast<uint8_t>(base + (i * 255 / len));
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+    const uint8_t wobble = ::sin8_t(static_cast<uint8_t>(base + i));
+    hue = static_cast<uint8_t>((static_cast<uint16_t>(hue) + wobble) / 2U);
+#endif
     set_pixel(i, apply_brightness(hsv_to_rgb(hue, sat, 255)));
   }
 }
 
 void fill_sparkle() {
   fill_solid();
-  const int sparkles = std::max(1, (g_state.led_count * (g_state.intensity + 16)) / 2048);
+  const int sparkles = (std::max)(1, (g_state.led_count * (g_state.intensity + 16)) / 2048);
   for (int i = 0; i < sparkles; i++) {
     const uint32_t n = hash_noise(static_cast<uint32_t>(i) * 0x9E3779B9U + g_state.now * 31U);
-    const int idx = static_cast<int>(n % static_cast<uint32_t>(std::max(g_state.led_count, 1)));
+    const int idx = static_cast<int>(n % static_cast<uint32_t>((std::max)(g_state.led_count, 1)));
     set_pixel(idx, apply_brightness({255, 255, 255}));
   }
 }
 
 void fill_chase() {
-  const int stride = std::max(2, 14 - (g_state.speed / 20));
-  const int head = static_cast<int>((g_state.now / 40U) % static_cast<uint32_t>(std::max(g_state.led_count, 1)));
+  const int stride = (std::max)(2, 14 - (g_state.speed / 20));
+  const int head = static_cast<int>((g_state.now / 40U) % static_cast<uint32_t>((std::max)(g_state.led_count, 1)));
   const Rgb fg = apply_brightness(g_state.primary);
   const Rgb bg = apply_brightness({0, 0, 0});
 
@@ -331,7 +339,7 @@ void set_error(std::string msg) {
 extern "C" {
 
 void wled_init(int ledCount) {
-  const int safe_count = std::max(1, std::min(ledCount, 100000));
+  const int safe_count = (std::max)(1, (std::min)(ledCount, 100000));
   g_state.led_count = safe_count;
   g_state.frame_buffer.assign(static_cast<size_t>(safe_count) * 3U, 0);
   g_state.now = 0;

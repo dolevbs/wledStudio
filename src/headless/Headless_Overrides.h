@@ -2,7 +2,36 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+
+#ifndef PSTR
+#define PSTR(x) x
+#endif
+
+#ifndef M_TWOPI
+#define M_TWOPI 6.28318530717958647692
+#endif
+
+template <typename T>
+constexpr T min(T a, T b) {
+  return (a < b) ? a : b;
+}
+
+template <typename T>
+constexpr T max(T a, T b) {
+  return (a > b) ? a : b;
+}
+
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+
+#ifndef LEDC_CHANNEL_MAX
+#define LEDC_CHANNEL_MAX 8
+#endif
+
+#ifndef LEDC_SPEED_MODE_MAX
+#define LEDC_SPEED_MODE_MAX 2
+#endif
 
 // Override ESPAsyncE131 dependency for headless/WASM builds.
 #ifndef ESPASYNCE131_H_
@@ -50,30 +79,7 @@ class E131Priority {
 
 #endif // ESPASYNCE131_H_
 
-// Override AsyncJson-v6 dependency that requires AsyncWebServer internals.
+// Skip AsyncJson-v6 dependency that requires AsyncWebServer internals.
 #ifndef ASYNC_JSON_H_
 #define ASYNC_JSON_H_
-
-#define DYNAMIC_JSON_DOCUMENT_SIZE 1024
-
-class AsyncWebServerRequest;
-class JsonVariant;
-class JsonArray;
-class JsonObject;
-class JsonDocument;
-
-using ArJsonRequestHandlerFunction = std::function<void(AsyncWebServerRequest*)>;
-
-class AsyncJsonResponse {
- public:
-  explicit AsyncJsonResponse(size_t = DYNAMIC_JSON_DOCUMENT_SIZE, bool = false) {}
-  explicit AsyncJsonResponse(JsonDocument*, bool = false) {}
-  JsonVariant& getRoot();
-};
-
-class AsyncCallbackJsonWebHandler {
- public:
-  explicit AsyncCallbackJsonWebHandler(const char*, ArJsonRequestHandlerFunction, size_t = DYNAMIC_JSON_DOCUMENT_SIZE) {}
-};
-
 #endif // ASYNC_JSON_H_
