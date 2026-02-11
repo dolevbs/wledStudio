@@ -11,6 +11,7 @@
 #define M_TWOPI 6.28318530717958647692
 #endif
 
+#if !defined(WLED_STUDIO_USE_UPSTREAM) || (WLED_STUDIO_USE_UPSTREAM == 0)
 template <typename T>
 constexpr T min(T a, T b) {
   return (a < b) ? a : b;
@@ -20,6 +21,7 @@ template <typename T>
 constexpr T max(T a, T b) {
   return (a > b) ? a : b;
 }
+#endif
 
 #ifndef IRAM_ATTR
 #define IRAM_ATTR

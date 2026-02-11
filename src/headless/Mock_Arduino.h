@@ -29,7 +29,6 @@ inline void set_mock_millis(uint64_t value) {
 }
 } // namespace wled_studio
 
-#if !defined(WLED_STUDIO_USE_UPSTREAM)
 inline uint32_t millis() {
   return static_cast<uint32_t>(wled_studio::g_mock_millis);
 }
@@ -78,10 +77,21 @@ class Print {
   }
 };
 
+class Stream : public Print {
+ public:
+  virtual int available() { return 0; }
+  virtual int read() { return -1; }
+};
+
+class Printable {
+ public:
+  virtual ~Printable() = default;
+  virtual size_t printTo(Print&) const { return 0; }
+};
+
 class MockSerial : public Print {
  public:
   virtual ~MockSerial() = default;
 };
 
 inline MockSerial Serial;
-#endif

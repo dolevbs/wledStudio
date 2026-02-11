@@ -1,4 +1,13 @@
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+#include "wled.h"
+#include "../../vendor/WLED/wled00/FX.h"
+namespace wled_studio {
+extern uint64_t g_mock_millis;
+inline void set_mock_millis(uint64_t value) { g_mock_millis = value; }
+}
+#else
 #include "Mock_Arduino.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -528,6 +537,57 @@ void set_error(std::string msg) {
   g_state.last_error = std::move(msg);
 }
 
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+uint32_t to_wled_color(Rgb c) {
+  return (static_cast<uint32_t>(c.r) << 16U) | (static_cast<uint32_t>(c.g) << 8U) | static_cast<uint32_t>(c.b);
+}
+
+void ensure_upstream_engine() {
+  static int configured_led_count = 0;
+  if (configured_led_count == g_state.led_count && strip.getSegmentsNum() > 0) {
+    return;
+  }
+
+  strip = WS2812FX();
+  strip.appendSegment(0, static_cast<uint16_t>(g_state.led_count), 0, 1);
+  strip.setTransition(0);
+  strip.finalizeInit();
+  configured_led_count = g_state.led_count;
+}
+
+void apply_upstream_state() {
+  ensure_upstream_engine();
+  strip.setBrightness(g_state.power ? g_state.brightness : 0, true);
+
+  Segment& seg = strip.getMainSegment();
+  seg.setGeometry(0, static_cast<uint16_t>(g_state.led_count), 1, 0, 0, 0, 1, 0);
+  seg.setOption(SEG_OPTION_ON, g_state.power);
+  seg.mode = g_state.effect;
+  seg.speed = g_state.speed;
+  seg.intensity = g_state.intensity;
+  seg.palette = g_state.palette;
+  seg.custom1 = g_state.custom1;
+  seg.custom2 = g_state.custom2;
+  seg.colors[0] = to_wled_color(g_state.primary);
+  seg.colors[1] = to_wled_color(g_state.secondary);
+  seg.colors[2] = to_wled_color(g_state.tertiary);
+  seg.markForReset();
+  strip.trigger();
+}
+
+void render_upstream_effect() {
+  if (g_state.frame_buffer.empty()) return;
+  strip.service();
+  for (int i = 0; i < g_state.led_count; i++) {
+    const uint32_t c = strip.getPixelColorNoMap(static_cast<unsigned>(i));
+    const size_t off = static_cast<size_t>(i) * 3U;
+    g_state.frame_buffer[off] = static_cast<uint8_t>((c >> 16U) & 0xFFU);
+    g_state.frame_buffer[off + 1] = static_cast<uint8_t>((c >> 8U) & 0xFFU);
+    g_state.frame_buffer[off + 2] = static_cast<uint8_t>(c & 0xFFU);
+  }
+}
+#endif
+
 } // namespace
 
 extern "C" {
@@ -538,6 +598,9 @@ void wled_init(int ledCount) {
   g_state.frame_buffer.assign(static_cast<size_t>(safe_count) * 3U, 0);
   g_state.now = 0;
   clear_error();
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+  apply_upstream_state();
+#endif
 }
 
 void wled_json_command(char* json_string) {
@@ -592,6 +655,9 @@ void wled_json_command(char* json_string) {
     if (extract_color_slot(json, 2, parsed_color)) {
       g_state.tertiary = parsed_color;
     }
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+    apply_upstream_state();
+#endif
   } catch (const std::exception& ex) {
     set_error(std::string{"json command failed: "} + ex.what());
   } catch (...) {
@@ -605,7 +671,11 @@ uint8_t* wled_render_frame(uint32_t simulated_millis) {
   if (g_state.frame_buffer.empty()) {
     wled_init(1);
   }
+#if defined(WLED_STUDIO_USE_UPSTREAM) && (WLED_STUDIO_USE_UPSTREAM == 1)
+  render_upstream_effect();
+#else
   render_effect();
+#endif
   return g_state.frame_buffer.data();
 }
 

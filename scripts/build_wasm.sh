@@ -45,8 +45,14 @@ SOURCES=(
 )
 
 if [[ "${USE_UPSTREAM}" == "1" ]]; then
+  BASE_DEFINES+=(
+    -DWLED_DISABLE_2D
+  )
   SOURCES+=(
-    /src/vendor/WLED/wled00/wled_math.cpp
+    /src/src/headless/upstream_fx.cpp
+    /src/src/headless/upstream_fx_particles.cpp
+    /src/src/headless/upstream_host_stubs.cpp
+    /src/src/headless/upstream_fastled_runtime.cpp
   )
 fi
 

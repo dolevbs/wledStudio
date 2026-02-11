@@ -10,6 +10,7 @@
 #include <vector>
 
 using String = std::string;
+using StringSumHelper = std::string;
 
 #ifndef PI
 #define PI 3.14159265358979323846

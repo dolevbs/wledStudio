@@ -20,6 +20,8 @@ class AsyncWebServer {
   void begin() {}
 };
 
+class AsyncWebServerRequest {};
+
 class WiFiUDP {
  public:
   bool begin(unsigned int) {
@@ -27,4 +29,8 @@ class WiFiUDP {
   }
 
   void stop() {}
+};
+
+struct ArtPollReply {
+  unsigned char raw[239];
 };
