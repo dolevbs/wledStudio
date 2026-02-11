@@ -26,6 +26,7 @@ export interface WledSegmentPayload {
   fx?: number;
   sx?: number;
   ix?: number;
+  pal?: number;
   col?: number[][];
 }
 
