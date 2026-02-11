@@ -1,0 +1,11 @@
+{
+  "hw": {
+    "led": {
+      "total": 900,
+      "matrix": true,
+      "width": 30,
+      "height": 30,
+      "serpentine": true
+    }
+  }
+}
