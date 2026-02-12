@@ -44,6 +44,10 @@ struct EngineState {
   uint8_t palette = 0;
   uint8_t custom1 = 0;
   uint8_t custom2 = 0;
+  uint8_t custom3 = 0;
+  bool check1 = false;
+  bool check2 = false;
+  bool check3 = false;
   Rgb primary{255, 170, 0};
   Rgb secondary{0, 0, 0};
   Rgb tertiary{0, 0, 0};
@@ -51,7 +55,20 @@ struct EngineState {
   std::string last_error;
 };
 
+struct UpdateMask {
+  bool speed = false;
+  bool intensity = false;
+  bool palette = false;
+  bool custom1 = false;
+  bool custom2 = false;
+  bool custom3 = false;
+  bool check1 = false;
+  bool check2 = false;
+  bool check3 = false;
+};
+
 EngineState g_state;
+UpdateMask g_update_mask;
 
 uint8_t clamp_u8(int value) {
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
@@ -544,6 +561,7 @@ uint32_t to_wled_color(Rgb c) {
 
 void ensure_upstream_engine() {
   static int configured_led_count = 0;
+  NeoGammaWLEDMethod::calcGammaTable(1.0f);
   if (configured_led_count == g_state.led_count && strip.getSegmentsNum() > 0) {
     return;
   }
@@ -562,12 +580,17 @@ void apply_upstream_state() {
   Segment& seg = strip.getMainSegment();
   seg.setGeometry(0, static_cast<uint16_t>(g_state.led_count), 1, 0, 0, 0, 1, 0);
   seg.setOption(SEG_OPTION_ON, g_state.power);
-  seg.setMode(g_state.effect, false);
-  seg.speed = g_state.speed;
-  seg.intensity = g_state.intensity;
-  seg.setPalette(g_state.palette);
-  seg.custom1 = g_state.custom1;
-  seg.custom2 = g_state.custom2;
+  const bool effect_changed = seg.mode != g_state.effect;
+  seg.setMode(g_state.effect, effect_changed);
+  if (g_update_mask.speed) seg.speed = g_state.speed;
+  if (g_update_mask.intensity) seg.intensity = g_state.intensity;
+  if (g_update_mask.palette) seg.setPalette(g_state.palette);
+  if (g_update_mask.custom1) seg.custom1 = g_state.custom1;
+  if (g_update_mask.custom2) seg.custom2 = g_state.custom2;
+  if (g_update_mask.custom3) seg.custom3 = g_state.custom3;
+  if (g_update_mask.check1) seg.check1 = g_state.check1;
+  if (g_update_mask.check2) seg.check2 = g_state.check2;
+  if (g_update_mask.check3) seg.check3 = g_state.check3;
   seg.setColor(0, to_wled_color(g_state.primary));
   seg.setColor(1, to_wled_color(g_state.secondary));
   seg.setColor(2, to_wled_color(g_state.tertiary));
@@ -581,8 +604,9 @@ void apply_upstream_state() {
 void render_upstream_effect() {
   if (g_state.frame_buffer.empty()) return;
   strip.service();
+  Segment& seg = strip.getMainSegment();
   for (int i = 0; i < g_state.led_count; i++) {
-    const uint32_t c = strip.getPixelColorNoMap(static_cast<unsigned>(i));
+    const uint32_t c = seg.getPixelColor(i);
     const size_t off = static_cast<size_t>(i) * 3U;
     g_state.frame_buffer[off] = static_cast<uint8_t>((c >> 16U) & 0xFFU);
     g_state.frame_buffer[off + 1] = static_cast<uint8_t>((c >> 8U) & 0xFFU);
@@ -615,6 +639,7 @@ void wled_json_command(char* json_string) {
 
     std::string_view json{json_string};
     clear_error();
+    g_update_mask = UpdateMask{};
 
     bool parsed_bool = false;
     if (extract_bool(json, "on", parsed_bool)) {
@@ -632,20 +657,51 @@ void wled_json_command(char* json_string) {
 
     if (extract_int(json, "sx", parsed_value)) {
       g_state.speed = clamp_u8(parsed_value);
+      g_update_mask.speed = true;
     }
 
     if (extract_int(json, "ix", parsed_value)) {
       g_state.intensity = clamp_u8(parsed_value);
+      g_update_mask.intensity = true;
     }
 
     if (extract_int(json, "pal", parsed_value)) {
       g_state.palette = clamp_u8(parsed_value);
+      g_update_mask.palette = true;
     }
     if (extract_int(json, "c1", parsed_value)) {
       g_state.custom1 = clamp_u8(parsed_value);
+      g_update_mask.custom1 = true;
     }
     if (extract_int(json, "c2", parsed_value)) {
       g_state.custom2 = clamp_u8(parsed_value);
+      g_update_mask.custom2 = true;
+    }
+    if (extract_int(json, "c3", parsed_value)) {
+      g_state.custom3 = clamp_u8(parsed_value);
+      g_update_mask.custom3 = true;
+    }
+
+    if (extract_bool(json, "o1", parsed_bool)) {
+      g_state.check1 = parsed_bool;
+      g_update_mask.check1 = true;
+    } else if (extract_int(json, "o1", parsed_value)) {
+      g_state.check1 = parsed_value != 0;
+      g_update_mask.check1 = true;
+    }
+    if (extract_bool(json, "o2", parsed_bool)) {
+      g_state.check2 = parsed_bool;
+      g_update_mask.check2 = true;
+    } else if (extract_int(json, "o2", parsed_value)) {
+      g_state.check2 = parsed_value != 0;
+      g_update_mask.check2 = true;
+    }
+    if (extract_bool(json, "o3", parsed_bool)) {
+      g_state.check3 = parsed_bool;
+      g_update_mask.check3 = true;
+    } else if (extract_int(json, "o3", parsed_value)) {
+      g_state.check3 = parsed_value != 0;
+      g_update_mask.check3 = true;
     }
 
     Rgb parsed_color{};

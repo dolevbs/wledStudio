@@ -49,12 +49,17 @@ um_data_t* simulateSound(uint8_t) {
   }
 
   const uint8_t phase = static_cast<uint8_t>((millis() / 16U) & 0xFFU);
+  const bool beatPulse = ((millis() / 280U) % 4U) == 0U;
   for (int i = 0; i < 16; i++) {
-    fftResult[i] = static_cast<uint8_t>((phase + i * 17) & 0xFFU);
+    const uint8_t wave = sin8(static_cast<uint8_t>(phase + i * 19));
+    uint16_t value = static_cast<uint16_t>((static_cast<uint16_t>(wave) * static_cast<uint16_t>(96 + i * 8)) >> 8);
+    if (beatPulse && i < 4) value = static_cast<uint16_t>(value + 120U);
+    if (value > 255U) value = 255U;
+    fftResult[i] = static_cast<uint8_t>(value);
   }
-  volumeSmth = static_cast<float>(fftResult[8]);
-  volumeRaw = fftResult[6];
-  samplePeak = (phase & 0x1FU) == 0 ? 1 : 0;
+  volumeSmth = static_cast<float>((fftResult[0] + fftResult[1] + fftResult[2] + fftResult[3]) / 4U);
+  volumeRaw = static_cast<int16_t>(volumeSmth);
+  samplePeak = beatPulse ? 1 : 0;
   majorPeak = 32.0f + static_cast<float>(fftResult[4]);
   magnitude = 16.0f + static_cast<float>(fftResult[2]);
   fftBin = static_cast<float>(fftResult[binNum & 0x0FU]);
@@ -153,6 +158,12 @@ uint8_t NeoGammaWLEDMethod::gammaT[256] = {0};
 uint8_t NeoGammaWLEDMethod::gammaT_inv[256] = {0};
 
 uint8_t NeoGammaWLEDMethod::Correct(uint8_t value) {
+  if (gammaT[1] == 0 && gammaT[255] == 0) {
+    for (unsigned i = 0; i < 256; i++) {
+      gammaT[i] = static_cast<uint8_t>(i);
+      gammaT_inv[i] = static_cast<uint8_t>(i);
+    }
+  }
   return value;
 }
 
@@ -160,7 +171,14 @@ uint32_t NeoGammaWLEDMethod::inverseGamma32(uint32_t color) {
   return color;
 }
 
-void NeoGammaWLEDMethod::calcGammaTable(float) {}
+void NeoGammaWLEDMethod::calcGammaTable(float) {
+  if (gammaT[1] == 0 && gammaT[255] == 0) {
+    for (unsigned i = 0; i < 256; i++) {
+      gammaT[i] = static_cast<uint8_t>(i);
+      gammaT_inv[i] = static_cast<uint8_t>(i);
+    }
+  }
+}
 
 int hour(std::time_t t) { return std::localtime(&t)->tm_hour; }
 int minute(std::time_t t) { return std::localtime(&t)->tm_min; }
@@ -198,7 +216,35 @@ const char* dayShortStr(int d) {
   return names[d];
 }
 
-int extractModeDefaults(uint8_t, const char*) {
+int extractModeDefaults(uint8_t mode, const char* segVar) {
+  if (!segVar || !*segVar) return -1;
+  const char* modeData = strip.getModeData(mode);
+  if (!modeData || !*modeData) return -1;
+
+  const char* defaults = std::strrchr(modeData, ';');
+  if (!defaults || !*(defaults + 1)) return -1;
+  defaults++;
+
+  const size_t keyLen = std::strlen(segVar);
+  const char* token = defaults;
+  while (*token) {
+    while (*token == ' ' || *token == ',') token++;
+    if (!*token) break;
+    const char* end = std::strchr(token, ',');
+    if (!end) end = token + std::strlen(token);
+
+    if (static_cast<size_t>(end - token) > keyLen + 1 &&
+        std::strncmp(token, segVar, keyLen) == 0 &&
+        token[keyLen] == '=') {
+      char* parseEnd = nullptr;
+      const long value = std::strtol(token + keyLen + 1, &parseEnd, 10);
+      if (parseEnd && parseEnd <= end) {
+        return static_cast<int>(value);
+      }
+    }
+
+    token = end;
+  }
   return -1;
 }
 
@@ -411,11 +457,47 @@ Segment& Segment::setOption(uint8_t n, bool val) {
 }
 
 Segment& Segment::setMode(uint8_t fx, bool) {
+  while (fx < strip.getModeCount() && std::strncmp("RSVD", strip.getModeData(fx), 4) == 0) fx++;
   if (fx >= strip.getModeCount()) fx = 0;
-  if (mode != fx) {
-    mode = fx;
-    markForReset();
-  }
+  if (mode == fx) return *this;
+
+  mode = fx;
+
+  int sOpt = extractModeDefaults(fx, "sx");
+  speed = (sOpt >= 0) ? static_cast<uint8_t>(sOpt) : DEFAULT_SPEED;
+  sOpt = extractModeDefaults(fx, "ix");
+  intensity = (sOpt >= 0) ? static_cast<uint8_t>(sOpt) : DEFAULT_INTENSITY;
+  sOpt = extractModeDefaults(fx, "c1");
+  custom1 = (sOpt >= 0) ? static_cast<uint8_t>(sOpt) : DEFAULT_C1;
+  sOpt = extractModeDefaults(fx, "c2");
+  custom2 = (sOpt >= 0) ? static_cast<uint8_t>(sOpt) : DEFAULT_C2;
+  sOpt = extractModeDefaults(fx, "c3");
+  custom3 = (sOpt >= 0) ? static_cast<uint8_t>(sOpt) : DEFAULT_C3;
+  sOpt = extractModeDefaults(fx, "o1");
+  check1 = (sOpt >= 0) ? (sOpt != 0) : false;
+  sOpt = extractModeDefaults(fx, "o2");
+  check2 = (sOpt >= 0) ? (sOpt != 0) : false;
+  sOpt = extractModeDefaults(fx, "o3");
+  check3 = (sOpt >= 0) ? (sOpt != 0) : false;
+
+  sOpt = extractModeDefaults(fx, "m12");
+  map1D2D = static_cast<uint8_t>((sOpt >= 0) ? constrain(sOpt, 0, 7) : M12_Pixels);
+
+  sOpt = extractModeDefaults(fx, "si");
+  if (sOpt >= 0) soundSim = static_cast<uint8_t>(constrain(sOpt, 0, 3));
+  sOpt = extractModeDefaults(fx, "rev");
+  if (sOpt >= 0) reverse = (sOpt != 0);
+  sOpt = extractModeDefaults(fx, "mi");
+  if (sOpt >= 0) mirror = (sOpt != 0);
+  sOpt = extractModeDefaults(fx, "rY");
+  if (sOpt >= 0) reverse_y = (sOpt != 0);
+  sOpt = extractModeDefaults(fx, "mY");
+  if (sOpt >= 0) mirror_y = (sOpt != 0);
+
+  sOpt = extractModeDefaults(fx, "pal");
+  if (sOpt >= 0) setPalette(static_cast<uint8_t>(sOpt));
+  _default_palette = (sOpt > 0) ? static_cast<uint8_t>(sOpt) : 6;
+  markForReset();
   return *this;
 }
 

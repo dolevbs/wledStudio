@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { ColorSchemeOption } from "@/config/simulationOptions";
+import { WLED_EFFECT_CATALOG } from "@/config/wledEffectCatalog";
 import { sanitizeTopology, sanitizeWledEnvelope } from "@/io/sanitize";
 import type { SimulationConfig, StudioTopology, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
 
@@ -77,6 +78,31 @@ function normalizeDimensions(mode: "strip" | "matrix", width: number, height: nu
     height: safeHeight,
     ledCount: safeWidth * safeHeight
   };
+}
+
+type EffectDefaults = Partial<Pick<WledSegmentPayload, "sx" | "ix" | "pal" | "c1" | "c2">>;
+
+function parseEffectDefaults(effectId: number): EffectDefaults {
+  const entry = WLED_EFFECT_CATALOG.find((effect) => effect.id === effectId);
+  if (!entry) return {};
+  const defaultsBlob = entry.metadata.split(";").pop() ?? "";
+  if (!defaultsBlob.includes("=")) return {};
+
+  const out: EffectDefaults = {};
+  const tokens = defaultsBlob.split(",");
+  for (const token of tokens) {
+    const [rawKey, rawValue] = token.split("=");
+    const key = rawKey?.trim();
+    const parsed = Number(rawValue);
+    if (!key || !Number.isFinite(parsed)) continue;
+    const value = Math.max(0, Math.min(255, Math.round(parsed)));
+    if (key === "sx") out.sx = value;
+    if (key === "ix") out.ix = value;
+    if (key === "pal") out.pal = value;
+    if (key === "c1") out.c1 = value;
+    if (key === "c2") out.c2 = value;
+  }
+  return out;
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
@@ -168,7 +194,19 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         next.on = value;
       } else if (key === "bri" && typeof value === "number") {
         next.bri = Math.max(0, Math.min(255, Math.round(value)));
-      } else if ((key === "fx" || key === "sx" || key === "ix" || key === "pal" || key === "c1" || key === "c2") && typeof value === "number") {
+      } else if (key === "fx" && typeof value === "number") {
+        const seg = next.seg as WledSegmentPayload;
+        const effectId = Math.max(0, Math.min(255, Math.round(value)));
+        seg.fx = effectId;
+        const defaults = parseEffectDefaults(effectId);
+        seg.sx = defaults.sx ?? 128;
+        seg.ix = defaults.ix ?? 128;
+        seg.pal = defaults.pal ?? seg.pal ?? 0;
+        if (typeof defaults.c1 === "number") seg.c1 = defaults.c1;
+        else delete seg.c1;
+        if (typeof defaults.c2 === "number") seg.c2 = defaults.c2;
+        else delete seg.c2;
+      } else if ((key === "sx" || key === "ix" || key === "pal" || key === "c1" || key === "c2") && typeof value === "number") {
         const seg = next.seg as WledSegmentPayload;
         seg[key] = Math.max(0, Math.min(255, Math.round(value)));
       }
