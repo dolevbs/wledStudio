@@ -282,7 +282,20 @@ Segment& Segment::operator=(Segment&& orig) noexcept {
 
 bool Segment::allocateData(size_t len) {
   if (len == 0) return false;
-  if (data) d_free(data);
+  if (data && _dataLen >= len) {
+    if (call == 0) {
+      std::memset(data, 0, len);
+    }
+    return true;
+  }
+  if (data) {
+    d_free(data);
+    if (_usedSegmentData >= _dataLen) {
+      _usedSegmentData -= static_cast<unsigned>(_dataLen);
+    } else {
+      _usedSegmentData = 0;
+    }
+  }
   data = static_cast<byte*>(allocate_buffer(len, BFRALLOC_CLEAR));
   if (!data) return false;
   _usedSegmentData += static_cast<unsigned>(len);
@@ -291,7 +304,14 @@ bool Segment::allocateData(size_t len) {
 }
 
 void Segment::deallocateData() {
-  if (data) d_free(data);
+  if (data) {
+    d_free(data);
+    if (_usedSegmentData >= _dataLen) {
+      _usedSegmentData -= static_cast<unsigned>(_dataLen);
+    } else {
+      _usedSegmentData = 0;
+    }
+  }
   data = nullptr;
   _dataLen = 0;
 }
@@ -310,8 +330,48 @@ void Segment::beginDraw(uint16_t prog) {
   _currentPalette = loadPalette(_currentPalette, palette);
 }
 
-CRGBPalette16& Segment::loadPalette(CRGBPalette16& tgt, uint8_t) {
-  tgt = _currentPalette;
+CRGBPalette16& Segment::loadPalette(CRGBPalette16& tgt, uint8_t pal) {
+  switch (pal) {
+    case 0:
+      tgt = CRGBPalette16(CRGB::Red, CRGB::Yellow, CRGB::Green, CRGB::Blue);
+      break;
+    case 1:
+      tgt = CRGBPalette16(CRGB(CHSV(0, 255, 255)), CRGB(CHSV(85, 255, 255)), CRGB(CHSV(170, 255, 255)), CRGB(CHSV(213, 255, 255)));
+      break;
+    case 2: {
+      const CRGB prim = CRGB(colors[0]);
+      tgt = CRGBPalette16(prim);
+      break;
+    }
+    case 3: {
+      const CRGB prim = CRGB(colors[0]);
+      const CRGB sec = CRGB(colors[1]);
+      tgt = CRGBPalette16(prim, prim, sec, sec);
+      break;
+    }
+    case 4: {
+      const CRGB prim = CRGB(colors[0]);
+      const CRGB sec = CRGB(colors[1]);
+      const CRGB ter = CRGB(colors[2]);
+      tgt = CRGBPalette16(prim, sec, sec, ter);
+      break;
+    }
+    case 5:
+      tgt = CRGBPalette16(CRGB::Black, CRGB::Maroon, CRGB::Orange, CRGB::Yellow);
+      break;
+    case 6:
+      tgt = CRGBPalette16(CRGB::Black, CRGB::DarkGreen, CRGB::Green, CRGB::Lime);
+      break;
+    case 7:
+      tgt = CRGBPalette16(CRGB::Navy, CRGB::Blue, CRGB::Aqua, CRGB::White);
+      break;
+    case 8:
+      tgt = CRGBPalette16(CRGB::DarkBlue, CRGB::Blue, CRGB::SeaGreen, CRGB::White);
+      break;
+    default:
+      tgt = CRGBPalette16(CRGB::Red, CRGB::Yellow, CRGB::Green, CRGB::Blue);
+      break;
+  }
   return tgt;
 }
 
@@ -380,13 +440,30 @@ uint16_t Segment::maxMappingLength() const { return length(); }
 unsigned Segment::virtualWidth() const { return is2D() ? width() : length(); }
 unsigned Segment::virtualHeight() const { return is2D() ? height() : 1; }
 
-bool Segment::isPixelClipped(int i) const { return i < 0 || i >= static_cast<int>(length()); }
-uint32_t Segment::getPixelColor(int i) const { return isPixelClipped(i) || !pixels ? 0 : pixels[i]; }
+namespace {
+inline int decodeVirtualIndex(int i) {
+  if (i < 0) return i;
+  if ((static_cast<uint32_t>(i) & 0xFFFF0000U) != 0U) {
+    return i & 0xFFFF;
+  }
+  return i;
+}
+}
+
+bool Segment::isPixelClipped(int i) const {
+  const int idx = decodeVirtualIndex(i);
+  return idx < 0 || idx >= static_cast<int>(length());
+}
+uint32_t Segment::getPixelColor(int i) const {
+  const int idx = decodeVirtualIndex(i);
+  return (idx < 0 || idx >= static_cast<int>(length()) || !pixels) ? 0 : pixels[idx];
+}
 
 void Segment::setPixelColor(int i, uint32_t c) const {
-  if (isPixelClipped(i) || !pixels) return;
-  pixels[i] = c;
-  const int abs = static_cast<int>(start) + i;
+  const int idx = decodeVirtualIndex(i);
+  if (idx < 0 || idx >= static_cast<int>(length()) || !pixels) return;
+  pixels[idx] = c;
+  const int abs = static_cast<int>(start) + idx;
   strip.setPixelColor(static_cast<unsigned>(abs), c);
 }
 
@@ -487,6 +564,7 @@ void WS2812FX::service() {
   const uint8_t mode = _currentSegment->mode;
   if (mode < _mode.size() && _mode[mode]) {
     _mode[mode]();
+    _currentSegment->call++;
   } else {
     fill(_currentSegment->colors[0]);
   }
