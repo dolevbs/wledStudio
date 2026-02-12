@@ -37,9 +37,9 @@ export interface StudioState {
 
 const DEFAULT_TOPOLOGY: StudioTopology = {
   mode: "matrix",
-  ledCount: 900,
+  ledCount: 150,
   width: 30,
-  height: 30,
+  height: 5,
   serpentine: true,
   gaps: []
 };

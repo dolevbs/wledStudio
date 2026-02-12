@@ -59,11 +59,6 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
     <section className="panelShell cardSection controlDeck">
       <div className="controlColumn">
         <h3 className="columnTitle">Color</h3>
-        <label className="colorWheelField">
-          <span className="srOnly">Primary color</span>
-          <input type="color" value={rgbToHex(segment?.col?.[0])} onChange={(event) => setSegmentColor(0, hexToRgb(event.target.value))} />
-        </label>
-
         <label className="fieldLabel">
           Brightness ({command.bri ?? 128})
           <input type="range" min={0} max={255} value={command.bri ?? 128} onChange={(event) => setControl("bri", Number(event.target.value))} />
@@ -86,17 +81,18 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
 
         <div className="swatchRow" aria-label="Quick palette colors">
           {COLOR_SCHEME_OPTIONS.map((scheme) => (
-            <button
-              key={scheme.id}
-              type="button"
-              className="swatchButton"
-              style={{
-                background: `linear-gradient(120deg, rgb(${scheme.col[0].join(" ")}), rgb(${scheme.col[1].join(" ")}), rgb(${scheme.col[2].join(" ")}))`
-              }}
-              onClick={() => setColorScheme(scheme)}
-            >
-              <span className="srOnly">{scheme.label}</span>
-            </button>
+            <div key={scheme.id} className="swatchItem">
+              <span className="swatchLabel">{scheme.label}</span>
+              <button
+                type="button"
+                className="swatchButton"
+                style={{
+                  background: `linear-gradient(120deg, rgb(${scheme.col[0].join(" ")}), rgb(${scheme.col[1].join(" ")}), rgb(${scheme.col[2].join(" ")}))`
+                }}
+                onClick={() => setColorScheme(scheme)}
+                aria-label={scheme.label}
+              />
+            </div>
           ))}
         </div>
       </div>
