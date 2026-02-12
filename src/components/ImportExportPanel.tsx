@@ -20,6 +20,12 @@ function downloadFile(filename: string, content: string): void {
   URL.revokeObjectURL(url);
 }
 
+export function exportCfgAndPresets(topology: StudioState["topology"], command: StudioState["command"]): void {
+  const artifacts = buildExportArtifacts(topology, command);
+  downloadFile("cfg.json", artifacts.cfgJson);
+  downloadFile("presets.json", artifacts.presetsJson);
+}
+
 function firstPresetValue(input: Record<string, unknown>): unknown {
   const [firstKey] = Object.keys(input);
   return firstKey ? input[firstKey] : null;
@@ -30,9 +36,7 @@ export function ImportExportPanel({ state }: ImportExportPanelProps) {
 
   const onExport = () => {
     try {
-      const artifacts = buildExportArtifacts(state.topology, state.command);
-      downloadFile("cfg.json", artifacts.cfgJson);
-      downloadFile("presets.json", artifacts.presetsJson);
+      exportCfgAndPresets(state.topology, state.command);
       setMessage("Exported cfg.json and presets.json");
     } catch (error) {
       setMessage(`Export failed: ${String(error)}`);

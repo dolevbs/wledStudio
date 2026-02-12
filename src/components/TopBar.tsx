@@ -1,32 +1,27 @@
 "use client";
 
 interface TopBarProps {
-  powerOn: boolean;
   running: boolean;
-  utilityOpen: boolean;
-  onTogglePower: () => void;
   onToggleRunning: () => void;
-  onToggleUtility: () => void;
+  onResetClock: () => void;
+  onExport: () => void;
 }
 
-export function TopBar({ powerOn, running, utilityOpen, onTogglePower, onToggleRunning, onToggleUtility }: TopBarProps) {
+export function TopBar({ running, onToggleRunning, onResetClock, onExport }: TopBarProps) {
   return (
     <header className="topBar panelShell">
       <div className="brandMark">
-        <span className="brandDot" aria-hidden>
-          ■
-        </span>
         <span>WLED Studio</span>
       </div>
       <nav className="topBarActions" aria-label="Primary controls">
-        <button type="button" className={powerOn ? "pillButton active" : "pillButton"} onClick={onTogglePower}>
-          Power
-        </button>
         <button type="button" className={running ? "pillButton active" : "pillButton"} onClick={onToggleRunning}>
           {running ? "Pause" : "Run"}
         </button>
-        <button type="button" className={utilityOpen ? "pillButton active" : "pillButton"} onClick={onToggleUtility}>
-          Utilities
+        <button type="button" className="pillButton" onClick={onResetClock}>
+          Reset Clock
+        </button>
+        <button type="button" className="pillButton" onClick={onExport}>
+          Export
         </button>
       </nav>
     </header>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ControlDeck } from "@/components/ControlDeck";
-import { ImportExportPanel } from "@/components/ImportExportPanel";
+import { exportCfgAndPresets, ImportExportPanel } from "@/components/ImportExportPanel";
 import { JsonPanel } from "@/components/JsonPanel";
 import { LedConfigCard } from "@/components/LedConfigCard";
 import { LedViewCard } from "@/components/LedViewCard";
@@ -153,12 +153,10 @@ export function StudioShell() {
   return (
     <main className="studioDashboard">
       <TopBar
-        powerOn={Boolean(state.command.on)}
         running={state.simulation.running}
-        utilityOpen={state.ui.drawerOpen}
-        onTogglePower={() => state.setControl("on", !Boolean(state.command.on))}
         onToggleRunning={() => state.setRunning(!state.simulation.running)}
-        onToggleUtility={state.toggleDrawer}
+        onResetClock={onReset}
+        onExport={() => exportCfgAndPresets(state.topology, state.command)}
       />
 
       <LedConfigCard
@@ -185,7 +183,7 @@ export function StudioShell() {
         setSegmentColor={state.setSegmentColor}
       />
 
-      <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer} onReset={onReset}>
+      <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer}>
         <div className="utilityStatusGrid">
           <span>LEDs: {state.topology.ledCount}</span>
           <span>Sim time: {state.simulatedMillis}ms</span>

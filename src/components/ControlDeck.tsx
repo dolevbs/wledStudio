@@ -53,7 +53,7 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
     { key: "sx" as const, label: "Speed", min: 0, max: 255, defaultValue: 128 },
     { key: "ix" as const, label: "Intensity", min: 0, max: 255, defaultValue: 128 }
   ];
-  const listedEffects = ACTIVE_EFFECT_OPTIONS.slice(0, 20);
+  const listedEffects = ACTIVE_EFFECT_OPTIONS;
 
   return (
     <section className="panelShell cardSection controlDeck">
@@ -69,6 +69,21 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
           <input type="range" min={0} max={255} value={command.bri ?? 128} onChange={(event) => setControl("bri", Number(event.target.value))} />
         </label>
 
+        <div className="segmentColorInputs">
+          <label className="fieldLabel">
+            Color 1
+            <input type="color" value={rgbToHex(segment?.col?.[0])} onChange={(event) => setSegmentColor(0, hexToRgb(event.target.value))} />
+          </label>
+          <label className="fieldLabel">
+            Color 2
+            <input type="color" value={rgbToHex(segment?.col?.[1])} onChange={(event) => setSegmentColor(1, hexToRgb(event.target.value))} />
+          </label>
+          <label className="fieldLabel">
+            Color 3
+            <input type="color" value={rgbToHex(segment?.col?.[2])} onChange={(event) => setSegmentColor(2, hexToRgb(event.target.value))} />
+          </label>
+        </div>
+
         <div className="swatchRow" aria-label="Quick palette colors">
           {COLOR_SCHEME_OPTIONS.map((scheme) => (
             <button
@@ -83,21 +98,6 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
               <span className="srOnly">{scheme.label}</span>
             </button>
           ))}
-        </div>
-
-        <div className="segmentColorInputs">
-          <label className="fieldLabel">
-            Color 1
-            <input type="color" value={rgbToHex(segment?.col?.[0])} onChange={(event) => setSegmentColor(0, hexToRgb(event.target.value))} />
-          </label>
-          <label className="fieldLabel">
-            Color 2
-            <input type="color" value={rgbToHex(segment?.col?.[1])} onChange={(event) => setSegmentColor(1, hexToRgb(event.target.value))} />
-          </label>
-          <label className="fieldLabel">
-            Color 3
-            <input type="color" value={rgbToHex(segment?.col?.[2])} onChange={(event) => setSegmentColor(2, hexToRgb(event.target.value))} />
-          </label>
         </div>
       </div>
 
@@ -141,13 +141,6 @@ export function ControlDeck({ command, setControl, setColorScheme, setSegmentCol
         <button type="button" className="pillButton isDisabled" disabled aria-disabled="true">
           + Add segment
         </button>
-        <label className="fieldLabel">
-          Transition
-          <div className="transitionField">
-            <input type="number" value="0.7" disabled aria-disabled="true" className="isDisabled" readOnly />
-            <span>s</span>
-          </div>
-        </label>
       </div>
 
       <div className="controlColumn">
