@@ -562,15 +562,18 @@ void apply_upstream_state() {
   Segment& seg = strip.getMainSegment();
   seg.setGeometry(0, static_cast<uint16_t>(g_state.led_count), 1, 0, 0, 0, 1, 0);
   seg.setOption(SEG_OPTION_ON, g_state.power);
-  seg.mode = g_state.effect;
+  seg.setMode(g_state.effect, false);
   seg.speed = g_state.speed;
   seg.intensity = g_state.intensity;
-  seg.palette = g_state.palette;
+  seg.setPalette(g_state.palette);
   seg.custom1 = g_state.custom1;
   seg.custom2 = g_state.custom2;
-  seg.colors[0] = to_wled_color(g_state.primary);
-  seg.colors[1] = to_wled_color(g_state.secondary);
-  seg.colors[2] = to_wled_color(g_state.tertiary);
+  seg.setColor(0, to_wled_color(g_state.primary));
+  seg.setColor(1, to_wled_color(g_state.secondary));
+  seg.setColor(2, to_wled_color(g_state.tertiary));
+  if (!seg.data) {
+    seg.allocateData(sizeof(uint32_t));
+  }
   seg.markForReset();
   strip.trigger();
 }

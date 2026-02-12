@@ -82,24 +82,37 @@ function scheduleLoop(): void {
     ledCount
   });
   timer = setInterval(() => {
-    simulatedMillis += tickIntervalMs();
-    const frame = engine!.renderFrame(simulatedMillis);
-    const error = engine!.getLastError();
-    tickCount += 1;
-    if (tickCount % 30 === 0) {
-      debug("tick", {
+    try {
+      simulatedMillis += tickIntervalMs();
+      const frame = engine!.renderFrame(simulatedMillis);
+      const error = engine!.getLastError();
+      tickCount += 1;
+      if (tickCount % 30 === 0) {
+        debug("tick", {
+          simulatedMillis,
+          frameSize: frame.length,
+          frameHead: [frame[0] ?? 0, frame[1] ?? 0, frame[2] ?? 0],
+          engineError: error || ""
+        });
+      }
+      postMessage({
+        type: "frame",
         simulatedMillis,
-        frameSize: frame.length,
-        frameHead: [frame[0] ?? 0, frame[1] ?? 0, frame[2] ?? 0],
-        engineError: error || ""
+        frame,
+        error
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      debug("tick:render:error", { message, simulatedMillis });
+      running = false;
+      scheduleLoop();
+      postMessage({
+        type: "frame",
+        simulatedMillis,
+        frame: new Uint8Array(Math.max(ledCount * 3, 3)),
+        error: `Render failure: ${message}. Simulation paused to prevent error loop.`
       });
     }
-    postMessage({
-      type: "frame",
-      simulatedMillis,
-      frame,
-      error
-    });
   }, tickIntervalMs());
 }
 

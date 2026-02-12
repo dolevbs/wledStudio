@@ -1,6 +1,6 @@
 "use client";
 
-import { COLOR_SCHEME_OPTIONS, EFFECT_OPTIONS, getEffectOption, type EffectControlKey } from "@/config/simulationOptions";
+import { ACTIVE_EFFECT_OPTIONS, COLOR_SCHEME_OPTIONS, getEffectOption, type EffectControlKey } from "@/config/simulationOptions";
 import type { StudioState } from "@/state/studioStore";
 
 interface ControlPanelProps {
@@ -174,7 +174,7 @@ export function ControlPanel({ state, onReset }: ControlPanelProps) {
           Effect
           <select value={selectedEffect} onChange={(event) => state.setControl("fx", Number(event.target.value))}>
             {!hasKnownEffect ? <option value={selectedEffect}>Custom ({selectedEffect})</option> : null}
-            {EFFECT_OPTIONS.map((effect) => (
+            {ACTIVE_EFFECT_OPTIONS.map((effect) => (
               <option key={effect.id} value={effect.id}>
                 {effect.label} ({effect.id})
               </option>

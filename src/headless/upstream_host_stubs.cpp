@@ -25,6 +25,40 @@ bool useAMPM = false;
 
 um_data_t* simulateSound(uint8_t) {
   static um_data_t data{};
+  static bool initialized = false;
+  static float volumeSmth = 128.0f;
+  static int16_t volumeRaw = 128;
+  static uint8_t fftResult[16] = {0};
+  static uint8_t samplePeak = 0;
+  static float majorPeak = 64.0f;
+  static float magnitude = 128.0f;
+  static uint8_t maxVol = 128;
+  static uint8_t binNum = 0;
+  static float fftBin = 64.0f;
+  if (!initialized) {
+    data.u_data[0] = &volumeSmth;
+    data.u_data[1] = &volumeRaw;
+    data.u_data[2] = fftResult;
+    data.u_data[3] = &samplePeak;
+    data.u_data[4] = &majorPeak;
+    data.u_data[5] = &magnitude;
+    data.u_data[6] = &maxVol;
+    data.u_data[7] = &binNum;
+    data.u_data[8] = &fftBin;
+    initialized = true;
+  }
+
+  const uint8_t phase = static_cast<uint8_t>((millis() / 16U) & 0xFFU);
+  for (int i = 0; i < 16; i++) {
+    fftResult[i] = static_cast<uint8_t>((phase + i * 17) & 0xFFU);
+  }
+  volumeSmth = static_cast<float>(fftResult[8]);
+  volumeRaw = fftResult[6];
+  samplePeak = (phase & 0x1FU) == 0 ? 1 : 0;
+  majorPeak = 32.0f + static_cast<float>(fftResult[4]);
+  magnitude = 16.0f + static_cast<float>(fftResult[2]);
+  fftBin = static_cast<float>(fftResult[binNum & 0x0FU]);
+
   return &data;
 }
 
@@ -68,8 +102,31 @@ uint32_t adjust_color(uint32_t rgb, uint32_t, uint32_t, uint32_t) {
 }
 
 uint32_t ColorFromPaletteWLED(const CRGBPalette16& pal, unsigned index, uint8_t brightness, TBlendType blendType) {
-  CRGB c = ColorFromPalette(pal, static_cast<uint8_t>(index & 0xFFU), brightness, blendType);
-  return RGBW32(c.r, c.g, c.b, 0);
+  if (blendType == LINEARBLEND_NOWRAP) {
+    index = (index * 0xF0U) >> 8;
+  }
+  unsigned hi4 = static_cast<uint8_t>(index) >> 4;
+  unsigned lo4 = index & 0x0FU;
+  const CRGB* entry = (CRGB*)&(pal[0]) + hi4;
+  unsigned red1 = entry->r;
+  unsigned green1 = entry->g;
+  unsigned blue1 = entry->b;
+  if (lo4 && blendType != NOBLEND) {
+    if (hi4 == 15) entry = &(pal[0]);
+    else ++entry;
+    unsigned f2 = lo4 << 4;
+    unsigned f1 = 256U - f2;
+    red1 = (red1 * f1 + static_cast<unsigned>(entry->r) * f2) >> 8;
+    green1 = (green1 * f1 + static_cast<unsigned>(entry->g) * f2) >> 8;
+    blue1 = (blue1 * f1 + static_cast<unsigned>(entry->b) * f2) >> 8;
+  }
+  if (brightness < 255) {
+    uint32_t scale = static_cast<uint32_t>(brightness) + 1U;
+    red1 = (red1 * scale) >> 8;
+    green1 = (green1 * scale) >> 8;
+    blue1 = (blue1 * scale) >> 8;
+  }
+  return RGBW32(red1, green1, blue1, 0);
 }
 
 CRGBPalette16 generateHarmonicRandomPalette(const CRGBPalette16& basepalette) {
@@ -294,7 +351,11 @@ Segment& Segment::setOption(uint8_t n, bool val) {
 }
 
 Segment& Segment::setMode(uint8_t fx, bool) {
-  mode = fx;
+  if (fx >= strip.getModeCount()) fx = 0;
+  if (mode != fx) {
+    mode = fx;
+    markForReset();
+  }
   return *this;
 }
 
@@ -391,6 +452,23 @@ void Segment::startTransition(uint16_t, bool) {
   if (_t) stopTransition();
 }
 
+void Segment::resetIfRequired() {
+  if (!reset || !isActive()) return;
+  if (data && _dataLen > 0) {
+    std::memset(data, 0, _dataLen);
+  }
+  if (pixels) {
+    for (size_t i = 0; i < length(); i++) {
+      pixels[i] = BLACK;
+    }
+  }
+  step = 0;
+  call = 0;
+  aux0 = 0;
+  aux1 = 0;
+  reset = false;
+}
+
 uint8_t Segment::currentCCT() const { return cct; }
 uint8_t Segment::currentBri() const { return opacity; }
 
@@ -404,6 +482,7 @@ void WS2812FX::service() {
   if (_segments.empty()) return;
   _segment_index = _mainSegment;
   _currentSegment = &_segments[_segment_index];
+  _currentSegment->resetIfRequired();
   _currentSegment->beginDraw();
   const uint8_t mode = _currentSegment->mode;
   if (mode < _mode.size() && _mode[mode]) {

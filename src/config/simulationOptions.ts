@@ -4,6 +4,7 @@ export interface EffectOption {
   id: number;
   label: string;
   controls: EffectControl[];
+  is2d: boolean;
 }
 
 export type EffectControlKey = "sx" | "ix" | "pal" | "c1" | "c2";
@@ -109,12 +110,19 @@ const CONTROL_OVERRIDES: Record<number, EffectControl[]> = {
 export const EFFECT_OPTIONS: EffectOption[] = WLED_EFFECT_CATALOG.map((effect) => {
   const derived = deriveControlsFromMetadata(effect.metadata);
   const controls = CONTROL_OVERRIDES[effect.id] ?? derived;
+  const is2d = /(?:^|;)2[a-z]*(?:;|$)/i.test(effect.metadata);
   return {
     id: effect.id,
     label: effect.label,
-    controls
+    controls,
+    is2d
   };
 });
+
+// Upstream WASM path currently builds with WLED_DISABLE_2D for reliability.
+// Keep the active UI list aligned with what the runtime can execute.
+export const ACTIVE_EFFECT_OPTIONS: EffectOption[] = EFFECT_OPTIONS.filter((effect) => !effect.is2d);
+export const ACTIVE_UPSTREAM_EFFECT_OPTIONS: EffectOption[] = ACTIVE_EFFECT_OPTIONS;
 
 export const COLOR_SCHEME_OPTIONS: ColorSchemeOption[] = [
   {
@@ -174,5 +182,5 @@ export function findColorSchemeById(id: string): ColorSchemeOption | undefined {
 }
 
 export function getEffectOption(effectId: number): EffectOption | undefined {
-  return EFFECT_OPTIONS.find((effect) => effect.id === effectId);
+  return ACTIVE_UPSTREAM_EFFECT_OPTIONS.find((effect) => effect.id === effectId);
 }

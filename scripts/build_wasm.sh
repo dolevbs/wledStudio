@@ -6,6 +6,7 @@ OUT_DIR="${ROOT_DIR}/public/wasm"
 WLED_DIR="${ROOT_DIR}/vendor/WLED/wled00"
 DOCKER_IMAGE="emscripten/emsdk:3.1.74"
 USE_UPSTREAM="${USE_UPSTREAM:-0}"
+DEBUG_WASM="${DEBUG_WASM:-0}"
 
 mkdir -p "${OUT_DIR}"
 
@@ -39,6 +40,29 @@ COMMON_FLAGS=(
   -I/src/src/headless
   -I/src/vendor/WLED/wled00
 )
+
+if [[ "${DEBUG_WASM}" == "1" ]]; then
+  COMMON_FLAGS=(
+    -O0
+    -g3
+    -std=c++20
+    -include /src/src/headless/Headless_Overrides.h
+    -s WASM=1
+    -s MODULARIZE=1
+    -s EXPORT_NAME=WLEDModule
+    -s ALLOW_MEMORY_GROWTH=1
+    -s ENVIRONMENT=web,worker,node
+    -s ASSERTIONS=2
+    -s STACK_OVERFLOW_CHECK=2
+    -s SAFE_HEAP=1
+    -s EXPORTED_FUNCTIONS='["_malloc","_free","_wled_init","_wled_json_command","_wled_render_frame","_wled_get_buffer_size","_wled_get_last_error"]'
+    -s EXPORTED_RUNTIME_METHODS='["cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]'
+    -I/src/vendor/FastLED/src/platforms/wasm/compiler
+    -I/src/vendor/FastLED/src
+    -I/src/src/headless
+    -I/src/vendor/WLED/wled00
+  )
+fi
 
 SOURCES=(
   /src/src/headless/wled_bridge.cpp
