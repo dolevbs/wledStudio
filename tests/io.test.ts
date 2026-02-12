@@ -17,6 +17,58 @@ describe("io sanitization", () => {
     expect(seg?.c2).toBe(0);
   });
 
+  it("preserves and sanitizes multiple segments", () => {
+    const result = sanitizeWledEnvelope({
+      seg: [
+        { i: 0, start: 0, stop: 50, fx: 8, col: [[255, 0, 0], [0, 0, 0], [0, 0, 0]] },
+        { i: 1, start: 50, stop: 100, fx: 9, col: [[0, 0, 255], [0, 0, 0], [0, 0, 0]] }
+      ]
+    });
+
+    expect(Array.isArray(result.data.seg)).toBe(true);
+    const seg = result.data.seg as Array<{ i?: number; start?: number; stop?: number; fx?: number }>;
+    expect(seg).toHaveLength(2);
+    expect(seg[0]?.i).toBe(0);
+    expect(seg[0]?.start).toBe(0);
+    expect(seg[0]?.stop).toBe(50);
+    expect(seg[1]?.i).toBe(1);
+    expect(seg[1]?.start).toBe(50);
+    expect(seg[1]?.stop).toBe(100);
+    expect(seg[1]?.fx).toBe(9);
+  });
+
+  it("sanitizes segment configuration fields", () => {
+    const result = sanitizeWledEnvelope({
+      seg: {
+        n: "Kitchen Strip",
+        start: 40,
+        stop: 30,
+        ofs: 12,
+        startY: 5,
+        stopY: 2,
+        bri: 300,
+        on: true,
+        rev: true,
+        mi: false,
+        grp: 3,
+        spc: 2
+      }
+    });
+    const seg = Array.isArray(result.data.seg) ? result.data.seg[0] : result.data.seg;
+    expect(seg?.n).toBe("Kitchen Strip");
+    expect(seg?.start).toBe(40);
+    expect(seg?.stop).toBe(41);
+    expect(seg?.ofs).toBe(12);
+    expect(seg?.startY).toBe(5);
+    expect(seg?.stopY).toBe(6);
+    expect(seg?.bri).toBe(255);
+    expect(seg?.on).toBe(true);
+    expect(seg?.rev).toBe(true);
+    expect(seg?.mi).toBe(false);
+    expect(seg?.grp).toBe(3);
+    expect(seg?.spc).toBe(2);
+  });
+
   it("sanitizes topology gaps", () => {
     const result = sanitizeTopology({
       mode: "strip",

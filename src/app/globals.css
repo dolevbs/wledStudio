@@ -296,6 +296,134 @@ input[type="checkbox"] {
   text-align: left;
 }
 
+.segmentCardsList {
+  display: grid;
+  gap: 8px;
+}
+
+.segmentPanel {
+  background: rgba(10, 12, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.segmentHeaderBar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.segmentHeaderButton {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(38, 43, 56, 0.82);
+  color: var(--text-main);
+  min-height: 34px;
+  border-radius: 10px;
+  text-align: left;
+  padding: 0 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segmentIconButton {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(56, 61, 76, 0.75);
+  color: var(--text-main);
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segmentIconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.segmentDotToggle {
+  display: inline-flex;
+}
+
+.segmentDotToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmentDotToggle span {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.segmentDotToggle input:checked + span {
+  background: rgba(176, 255, 164, 0.72);
+}
+
+.segmentLabelsRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.segmentInputsRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.segmentInputsRow input {
+  min-height: 34px;
+  text-align: center;
+  border-radius: 8px;
+}
+
+.segmentInputsRowTwo {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 2fr);
+}
+
+.segmentApplyButton {
+  min-height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(56, 61, 76, 0.75);
+  color: var(--text-main);
+}
+
+.segmentLedCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.segmentCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+.segmentPowerRow {
+  display: grid;
+  gap: 4px;
+}
+
+.segmentPowerRow span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
 .utilityDrawer {
   padding: 10px;
 }
@@ -444,6 +572,12 @@ textarea {
   }
 
   .segmentColorInputs {
+    grid-template-columns: 1fr;
+  }
+
+  .segmentLabelsRow,
+  .segmentInputsRow,
+  .segmentInputsRowTwo {
     grid-template-columns: 1fr;
   }
 }
