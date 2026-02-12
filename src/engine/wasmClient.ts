@@ -16,6 +16,12 @@ interface EmscriptenFactoryOptions {
 
 type ModuleFactory = (options?: EmscriptenFactoryOptions) => Promise<EmscriptenModule>;
 
+const NEXT_PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
+function withBasePath(path: string): string {
+  return `${NEXT_PUBLIC_BASE_PATH}${path}`;
+}
+
 class WasmBridgeEngine implements WledEngine {
   private readonly module: EmscriptenModule;
   private readonly initFn: (ledCount: number) => void;
@@ -76,8 +82,9 @@ async function loadModuleFactory(): Promise<ModuleFactory | null> {
 
   try {
     if (!(self as unknown as { WLEDModule?: ModuleFactory }).WLEDModule) {
-      console.log("[wasmClient] importing /wasm/wled.js");
-      importScripts("/wasm/wled.js");
+      const moduleScriptUrl = withBasePath("/wasm/wled.js");
+      console.log(`[wasmClient] importing ${moduleScriptUrl}`);
+      importScripts(moduleScriptUrl);
     }
 
     const factory = (self as unknown as { WLEDModule?: ModuleFactory }).WLEDModule;
@@ -103,7 +110,7 @@ export async function createWledEngine(): Promise<WledEngine> {
     const module = await factory({
       locateFile: (path) => {
         if (path.endsWith(".wasm")) {
-          return `/wasm/${path}`;
+          return withBasePath(`/wasm/${path}`);
         }
         return path;
       }
