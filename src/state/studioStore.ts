@@ -9,6 +9,9 @@ export interface StudioState {
   topology: StudioTopology;
   simulation: SimulationConfig;
   command: WledJsonEnvelope;
+  ui: {
+    drawerOpen: boolean;
+  };
   rawJson: string;
   warnings: string[];
   lastError: string;
@@ -29,6 +32,7 @@ export interface StudioState {
   setFrame: (frame: Uint8Array, simulatedMillis: number, error: string) => void;
   replaceTopology: (topology: StudioTopology) => void;
   replaceCommand: (command: WledJsonEnvelope, warnings?: string[]) => void;
+  toggleDrawer: () => void;
 }
 
 const DEFAULT_TOPOLOGY: StudioTopology = {
@@ -109,6 +113,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   topology: DEFAULT_TOPOLOGY,
   simulation: DEFAULT_SIMULATION,
   command: DEFAULT_COMMAND,
+  ui: {
+    drawerOpen: false
+  },
   rawJson: stringifyCommand(DEFAULT_COMMAND),
   warnings: [],
   lastError: "",
@@ -317,5 +324,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       command,
       rawJson: stringifyCommand(command),
       warnings
-    })
+    }),
+
+  toggleDrawer: () =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        drawerOpen: !state.ui.drawerOpen
+      }
+    }))
 }));

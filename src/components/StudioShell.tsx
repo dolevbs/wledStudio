@@ -2,16 +2,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ControlPanel } from "@/components/ControlPanel";
+import { ControlDeck } from "@/components/ControlDeck";
 import { ImportExportPanel } from "@/components/ImportExportPanel";
 import { JsonPanel } from "@/components/JsonPanel";
+import { LedConfigCard } from "@/components/LedConfigCard";
+import { LedViewCard } from "@/components/LedViewCard";
 import { StudioRenderer } from "@/rendering/StudioRenderer";
+import { TopBar } from "@/components/TopBar";
+import { UtilityDrawer } from "@/components/UtilityDrawer";
 import { useStudioStore } from "@/state/studioStore";
 
 const DEBUG_SIM = true;
 
 export function StudioShell() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null!);
   const rendererRef = useRef<StudioRenderer | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const frameRef = useRef<Uint8Array>(new Uint8Array());
@@ -147,57 +151,67 @@ export function StudioShell() {
   };
 
   return (
-    <main className="studioRoot">
-      <section className="visualShell">
-        <div className="statusBar">
+    <main className="studioDashboard">
+      <TopBar
+        powerOn={Boolean(state.command.on)}
+        running={state.simulation.running}
+        utilityOpen={state.ui.drawerOpen}
+        onTogglePower={() => state.setControl("on", !Boolean(state.command.on))}
+        onToggleRunning={() => state.setRunning(!state.simulation.running)}
+        onToggleUtility={state.toggleDrawer}
+      />
+
+      <LedConfigCard
+        topology={state.topology}
+        onModeChange={state.setMode}
+        onDimensionsChange={state.setDimensions}
+        onLedCountChange={state.setLedCount}
+        onSerpentineChange={state.setSerpentine}
+        onGapsChange={state.setGaps}
+      />
+
+      <LedViewCard
+        canvasRef={canvasRef}
+        ledCount={state.topology.ledCount}
+        simulatedMillis={state.simulatedMillis}
+        simTickRate={state.simulation.simTickRate}
+        lastError={state.lastError}
+      />
+
+      <ControlDeck
+        command={state.command}
+        setControl={state.setControl}
+        setColorScheme={state.setColorScheme}
+        setSegmentColor={state.setSegmentColor}
+      />
+
+      <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer} onReset={onReset}>
+        <div className="utilityStatusGrid">
           <span>LEDs: {state.topology.ledCount}</span>
           <span>Sim time: {state.simulatedMillis}ms</span>
           <span>Target sim: {state.simulation.simTickRate} TPS</span>
-          <span className={state.lastError ? "error" : "ok"}>{state.lastError ? state.lastError : "No engine errors"}</span>
+          <span className={state.lastError ? "errorText" : "okText"}>{state.lastError ? state.lastError : "No engine errors"}</span>
         </div>
-        {DEBUG_SIM ? (
-          <pre className="statusBar" style={{ marginTop: 8, maxHeight: 120, overflow: "auto", fontSize: 11 }}>
-            {diagLines.length > 0 ? diagLines.join("\n") : "No diagnostics yet"}
-          </pre>
-        ) : null}
-        <canvas ref={canvasRef} className="studioCanvas" />
-      </section>
-
-      <aside className="sidebar">
-        <ControlPanel
-          state={{
-            topology: state.topology,
-            simulation: state.simulation,
-            command: state.command,
-            setMode: state.setMode,
-            setDimensions: state.setDimensions,
-            setLedCount: state.setLedCount,
-            setSerpentine: state.setSerpentine,
-            setGaps: state.setGaps,
-            setControl: state.setControl,
-            setColorScheme: state.setColorScheme,
-            setSegmentColor: state.setSegmentColor,
-            setRunning: state.setRunning
-          }}
-          onReset={onReset}
-        />
-        <ImportExportPanel
-          state={{
-            topology: state.topology,
-            command: state.command,
-            replaceTopology: state.replaceTopology,
-            replaceCommand: state.replaceCommand
-          }}
-        />
-        <JsonPanel
-          state={{
-            rawJson: state.rawJson,
-            setRawJson: state.setRawJson,
-            applyRawJson: state.applyRawJson,
-            warnings: state.warnings
-          }}
-        />
-      </aside>
+        {DEBUG_SIM ? <pre className="diagLog">{diagLines.length > 0 ? diagLines.join("\n") : "No diagnostics yet"}</pre> : null}
+        <div className="utilityPanels">
+          <ImportExportPanel
+            state={{
+              topology: state.topology,
+              command: state.command,
+              replaceTopology: state.replaceTopology,
+              replaceCommand: state.replaceCommand
+            }}
+          />
+          <JsonPanel
+            state={{
+              rawJson: state.rawJson,
+              setRawJson: state.setRawJson,
+              applyRawJson: state.applyRawJson,
+              warnings: state.warnings
+            }}
+          />
+        </div>
+      </UtilityDrawer>
     </main>
   );
 }
