@@ -1,7 +1,10 @@
 /// <reference lib="webworker" />
 
 import { createWledEngine } from "@/engine/wasmClient";
+import { renderCompositedFrame } from "@/engine/segmentComposer";
+import type { SegmentMap } from "@/engine/segmentComposer";
 import type { WledEngine } from "@/engine/softwareEngine";
+import type { WledJsonEnvelope } from "@/types/studio";
 
 interface InitMessage {
   type: "init";
@@ -40,6 +43,8 @@ let simulatedMillis = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
 let initPromise: Promise<void> | null = null;
+let command: WledJsonEnvelope = {};
+let mapCache = new Map<string, SegmentMap>();
 
 function debug(event: string, data?: Record<string, unknown>): void {
   if (!DEBUG_SIM) {
@@ -84,7 +89,7 @@ function scheduleLoop(): void {
   timer = setInterval(() => {
     try {
       simulatedMillis += tickIntervalMs();
-      const frame = engine!.renderFrame(simulatedMillis);
+      const frame = renderCompositedFrame(engine!, command, ledCount, simulatedMillis, mapCache);
       const error = engine!.getLastError();
       tickCount += 1;
       if (tickCount % 30 === 0) {
@@ -194,18 +199,27 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       await ensureEngine(message.ledCount);
       ledCount = Math.max(1, Math.round(message.ledCount));
       engine!.init(ledCount);
+      mapCache = new Map();
       scheduleLoop();
       return;
     }
     case "json": {
       await ensureEngine(ledCount);
       debug("json:apply", { payloadPreview: message.payload.slice(0, 180) });
-      engine!.jsonCommand(message.payload);
+      try {
+        const parsed = JSON.parse(message.payload) as WledJsonEnvelope;
+        command = parsed;
+        mapCache = new Map();
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        debug("json:parse:error", { message: messageText });
+      }
       return;
     }
     case "reset": {
       simulatedMillis = 0;
       tickCount = 0;
+      mapCache = new Map();
       if (engine) {
         engine.init(ledCount);
       }

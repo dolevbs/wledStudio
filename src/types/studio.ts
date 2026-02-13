@@ -23,6 +23,19 @@ export interface SimulationConfig {
 }
 
 export interface WledSegmentPayload {
+  i?: number;
+  n?: string;
+  start?: number;
+  stop?: number;
+  ofs?: number;
+  startY?: number;
+  stopY?: number;
+  bri?: number;
+  on?: boolean;
+  rev?: boolean;
+  mi?: boolean;
+  grp?: number;
+  spc?: number;
   fx?: number;
   sx?: number;
   ix?: number;

@@ -8,6 +8,21 @@ function clampByte(value: unknown, fallback: number): number {
   return Math.min(255, Math.max(0, Math.round(n)));
 }
 
+function clampNonNegativeInt(value: unknown): number | undefined {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return undefined;
+  }
+  return Math.max(0, Math.round(n));
+}
+
+function clampText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value.slice(0, maxLength);
+}
+
 function asObject(input: unknown): Record<string, unknown> | null {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return null;
@@ -24,6 +39,38 @@ function sanitizeSegment(input: unknown, warnings: string[]): WledSegmentPayload
   const pal = clampByte(src.pal, 0);
   const c1 = clampByte(src.c1, 0);
   const c2 = clampByte(src.c2, 0);
+  const i = clampNonNegativeInt(src.i);
+  const n = clampText(src.n, 64);
+  const start = clampNonNegativeInt(src.start);
+  let stop = clampNonNegativeInt(src.stop);
+  const ofs = clampNonNegativeInt(src.ofs);
+  const startY = clampNonNegativeInt(src.startY);
+  let stopY = clampNonNegativeInt(src.stopY);
+  const bri = src.bri === undefined ? undefined : clampByte(src.bri, 255);
+  const grp = src.grp === undefined ? undefined : clampByte(src.grp, 1);
+  const spc = src.spc === undefined ? undefined : clampByte(src.spc, 0);
+  const on = typeof src.on === "boolean" ? src.on : undefined;
+  const rev = typeof src.rev === "boolean" ? src.rev : undefined;
+  const mi = typeof src.mi === "boolean" ? src.mi : undefined;
+
+  if (on === undefined && src.on !== undefined) {
+    warnings.push("Ignored invalid seg.on payload; expected boolean");
+  }
+  if (rev === undefined && src.rev !== undefined) {
+    warnings.push("Ignored invalid seg.rev payload; expected boolean");
+  }
+  if (mi === undefined && src.mi !== undefined) {
+    warnings.push("Ignored invalid seg.mi payload; expected boolean");
+  }
+
+  if (start !== undefined && stop !== undefined && stop <= start) {
+    stop = start + 1;
+    warnings.push("Adjusted invalid segment bounds where stop <= start");
+  }
+  if (startY !== undefined && stopY !== undefined && stopY <= startY) {
+    stopY = startY + 1;
+    warnings.push("Adjusted invalid segment Y bounds where stopY <= startY");
+  }
 
   let col: number[][] = [[255, 170, 0], [0, 0, 0], [0, 0, 0]];
   if (Array.isArray(src.col)) {
@@ -38,7 +85,7 @@ function sanitizeSegment(input: unknown, warnings: string[]): WledSegmentPayload
     warnings.push("Ignored invalid seg.col payload; fallback color palette applied");
   }
 
-  return { fx, sx, ix, pal, c1, c2, col };
+  return { i, n, start, stop, ofs, startY, stopY, bri, on, rev, mi, grp, spc, fx, sx, ix, pal, c1, c2, col };
 }
 
 export function sanitizeWledEnvelope(input: unknown): ImportResult<WledJsonEnvelope> {
@@ -58,12 +105,12 @@ export function sanitizeWledEnvelope(input: unknown): ImportResult<WledJsonEnvel
   const bri = clampByte(src.bri, 128);
 
   const segSource = src.seg;
-  let seg: WledSegmentPayload;
+  let seg: WledSegmentPayload | WledSegmentPayload[];
   if (Array.isArray(segSource) && segSource.length > 0) {
-    seg = sanitizeSegment(segSource[0], warnings);
-    if (segSource.length > 1) {
-      warnings.push("Multiple segments found; MVP currently applies first segment only");
-    }
+    seg = segSource.map((entry) => sanitizeSegment(entry, warnings));
+  } else if (Array.isArray(segSource) && segSource.length === 0) {
+    warnings.push("Empty seg array; fallback segment was applied");
+    seg = sanitizeSegment(undefined, warnings);
   } else {
     seg = sanitizeSegment(segSource, warnings);
   }
