@@ -3,12 +3,29 @@ import { create } from "zustand";
 import type { ColorSchemeOption } from "@/config/simulationOptions";
 import { WLED_EFFECT_CATALOG } from "@/config/wledEffectCatalog";
 import { sanitizeTopology, sanitizeWledEnvelope } from "@/io/sanitize";
-import type { SimulationConfig, StudioTopology, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
+import { recomputeVisualizationSync } from "@/rendering/visualization";
+import { normalizePlaylistPayload, shufflePlaylistOrder, type NormalizedPlaylist } from "@/state/playlist";
+import type {
+  BackgroundAsset,
+  PaintedStrip,
+  PlaylistRuntimeState,
+  SimulationConfig,
+  StripSegmentLink,
+  StudioPresetLibrary,
+  StudioTopology,
+  VisualizationProject,
+  WledJsonEnvelope,
+  WledPlaylistPayload,
+  WledPresetEntry,
+  WledSegmentPayload
+} from "@/types/studio";
 
 export interface StudioState {
   topology: StudioTopology;
   simulation: SimulationConfig;
   command: WledJsonEnvelope;
+  presets: StudioPresetLibrary;
+  visualization: VisualizationProject;
   ui: {
     drawerOpen: boolean;
     selectedSegmentIndex: number;
@@ -42,6 +59,30 @@ export interface StudioState {
   replaceTopology: (topology: StudioTopology) => void;
   replaceCommand: (command: WledJsonEnvelope, warnings?: string[]) => void;
   toggleDrawer: () => void;
+
+  savePreset: (id?: number, name?: string) => number | null;
+  deletePreset: (id: number) => void;
+  applyPreset: (id: number) => void;
+  setPresetQuickLabel: (id: number, quickLabel: string) => void;
+  setPlaylistForPreset: (id: number, payload: WledPlaylistPayload) => void;
+  clearPlaylistForPreset: (id: number) => void;
+  startPlaylist: (payload: WledPlaylistPayload, sourcePresetId?: number | null) => void;
+  stopPlaylist: () => void;
+  advancePlaylist: () => void;
+  tickPlaylist: (simulatedMillis: number) => void;
+  replacePresetLibrary: (entries: Record<string, WledPresetEntry>, warnings?: string[]) => void;
+
+  setVisualizationEnabled: (enabled: boolean) => void;
+  setVisualizationBackground: (background: BackgroundAsset | null) => void;
+  startVisualizationStrip: () => void;
+  addVisualizationPoint: (x: number, y: number) => void;
+  finishVisualizationStrip: () => void;
+  cancelVisualizationStrip: () => void;
+  removeVisualizationStrip: (stripId: string) => void;
+  mapVisualizationStrip: (stripId: string, segmentIndex: number) => void;
+  updateVisualizationStripLedCount: (stripId: string, ledCount: number) => void;
+  importVisualizationProject: (project: Partial<VisualizationProject>) => void;
+  exportVisualizationProject: () => string;
 }
 
 const DEFAULT_TOPOLOGY: StudioTopology = {
@@ -78,6 +119,17 @@ const DEFAULT_SIMULATION: SimulationConfig = {
   startMillis: 0
 };
 
+const DEFAULT_VISUALIZATION: VisualizationProject = {
+  enabled: false,
+  background: null,
+  strips: [],
+  links: [],
+  derivedIndexMap: [],
+  derivedPositions: [],
+  draftPoints: [],
+  drawing: false
+};
+
 function stringifyCommand(command: WledJsonEnvelope): string {
   return JSON.stringify(command, null, 2);
 }
@@ -86,6 +138,17 @@ function cloneSegment(segment: WledSegmentPayload): WledSegmentPayload {
   return {
     ...segment,
     col: Array.isArray(segment.col) ? segment.col.map((entry) => (Array.isArray(entry) ? entry.slice(0, 3) : [0, 0, 0])) : undefined
+  };
+}
+
+function cloneCommand(command: WledJsonEnvelope): WledJsonEnvelope {
+  return {
+    ...command,
+    seg: Array.isArray(command.seg)
+      ? command.seg.map(cloneSegment)
+      : command.seg
+        ? cloneSegment(command.seg)
+        : undefined
   };
 }
 
@@ -115,7 +178,7 @@ function ensureSingleSegmentCoversStrip(command: WledJsonEnvelope, ledCount: num
   if (segments.length !== 1) {
     return command;
   }
-  const segment = segments[0];
+  const segment = segments[0]!;
   segment.start = 0;
   segment.stop = Math.max(1, Math.round(ledCount));
   segment.on = segment.on ?? true;
@@ -137,7 +200,7 @@ function clampNonNegativeInt(value: number): number {
 function selectedSegment(state: Pick<StudioState, "command" | "ui">): { segments: WledSegmentPayload[]; segment: WledSegmentPayload } {
   const segments = commandSegments(state.command);
   const segmentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
-  const segment = segments[segmentIndex] ?? segments[0];
+  const segment = segments[segmentIndex] ?? segments[0]!;
   return { segments, segment };
 }
 
@@ -149,7 +212,7 @@ function applyControlToSegment(
 ): WledJsonEnvelope {
   const segments = commandSegments(baseCommand);
   const segmentIndex = clampSegmentIndex(targetIndex, segments.length);
-  const target = segments[segmentIndex] ?? segments[0];
+  const target = segments[segmentIndex] ?? segments[0]!;
 
   const next: WledJsonEnvelope = {
     ...baseCommand,
@@ -218,10 +281,112 @@ function parseEffectDefaults(effectId: number): EffectDefaults {
   return out;
 }
 
+function nextPresetId(entries: Record<string, WledPresetEntry>): number | null {
+  for (let id = 1; id <= 250; id += 1) {
+    if (!(String(id) in entries)) return id;
+  }
+  return null;
+}
+
+function commandFromPreset(entry: WledPresetEntry): WledJsonEnvelope {
+  const { n: _name, ql: _ql, playlist: _playlist, ...state } = entry;
+  const sanitized = sanitizeWledEnvelope(state);
+  return sanitized.data;
+}
+
+function clonePresetEntry(entry: WledPresetEntry): WledPresetEntry {
+  return {
+    ...cloneCommand(entry),
+    n: entry.n,
+    ql: entry.ql,
+    playlist: entry.playlist
+      ? {
+          ...entry.playlist,
+          ps: entry.playlist.ps.slice(),
+          dur: Array.isArray(entry.playlist.dur) ? entry.playlist.dur.slice() : entry.playlist.dur,
+          transition: Array.isArray(entry.playlist.transition) ? entry.playlist.transition.slice() : entry.playlist.transition
+        }
+      : undefined
+  };
+}
+
+function normalizePlaylistForRuntime(payload: WledPlaylistPayload): { playlist: NormalizedPlaylist | null; warnings: string[] } {
+  const normalized = normalizePlaylistPayload(payload);
+  return {
+    playlist: normalized.playlist,
+    warnings: normalized.warnings
+  };
+}
+
+function buildPlaylistRuntime(playlist: NormalizedPlaylist, sourcePresetId: number | null, simulatedMillis: number): PlaylistRuntimeState {
+  const sourceOrder = playlist.ps.slice();
+  return {
+    sourcePresetId,
+    sourceOrder,
+    activeOrder: sourceOrder.slice(),
+    dur: playlist.dur.slice(),
+    transition: playlist.transition.slice(),
+    repeat: playlist.repeat,
+    end: playlist.end,
+    r: playlist.r,
+    index: -1,
+    lastAdvanceMillis: simulatedMillis,
+    remainingRepetitions: playlist.repeat > 0 ? playlist.repeat + 1 : 0,
+    pendingImmediate: true,
+    advanceRequested: false
+  };
+}
+
+function createStripId(): string {
+  return `strip_${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function applyVisualizationSync(state: StudioState, visualization: VisualizationProject): Pick<StudioState, "topology" | "command" | "rawJson" | "visualization"> {
+  const sync = recomputeVisualizationSync(visualization, state.command);
+
+  const nextTopology = {
+    ...state.topology,
+    mode: "strip" as const,
+    ledCount: sync.topologyLedCount,
+    width: sync.topologyLedCount,
+    height: 1,
+    gaps: []
+  };
+
+  const nextCommand: WledJsonEnvelope = {
+    ...state.command,
+    seg: normalizeCommandSegments(sync.segments)
+  };
+
+  return {
+    topology: nextTopology,
+    command: nextCommand,
+    rawJson: stringifyCommand(nextCommand),
+    visualization: {
+      ...visualization,
+      derivedIndexMap: sync.derivedIndexMap,
+      derivedPositions: sync.derivedPositions
+    }
+  };
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   topology: DEFAULT_TOPOLOGY,
   simulation: DEFAULT_SIMULATION,
   command: DEFAULT_COMMAND,
+  presets: {
+    entries: {
+      "1": {
+        n: "Studio Export",
+        on: DEFAULT_COMMAND.on,
+        bri: DEFAULT_COMMAND.bri,
+        seg: cloneCommand(DEFAULT_COMMAND).seg
+      }
+    },
+    currentPresetId: null,
+    activePlaylist: null
+  },
+  visualization: DEFAULT_VISUALIZATION,
   ui: {
     drawerOpen: false,
     selectedSegmentIndex: 0
@@ -390,7 +555,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (key === "bri" || key === "grp" || key === "spc") {
         segment[key] = clampByte(value);
       } else if (key === "stop") {
-        // UI stop is inclusive; store model uses WLED-exclusive stop.
         segment.stop = clampNonNegativeInt(value) + 1;
       } else {
         segment[key] = clampNonNegativeInt(value);
@@ -434,7 +598,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => {
       const segments = commandSegments(state.command);
       const segmentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
-      const target = segments[segmentIndex] ?? segments[0];
+      const target = segments[segmentIndex] ?? segments[0]!;
       target.pal = Math.max(0, Math.min(255, Math.round(scheme.pal)));
       target.col = scheme.col.map(([r, g, b]) => [
         Math.max(0, Math.min(255, Math.round(r))),
@@ -468,7 +632,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => {
       const segments = commandSegments(state.command);
       const currentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
-      const template = cloneSegment(segments[currentIndex] ?? segments[0]);
+      const template = cloneSegment(segments[currentIndex] ?? segments[0]!);
       const newIndex = segments.length;
       const nextSegment: WledSegmentPayload = {
         ...template,
@@ -615,5 +779,420 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         ...state.ui,
         drawerOpen: !state.ui.drawerOpen
       }
-    }))
+    })),
+
+  savePreset: (id, name) => {
+    const state = get();
+    const nextId = id ?? nextPresetId(state.presets.entries);
+    if (!nextId || nextId < 1 || nextId > 250) return null;
+
+    const entry: WledPresetEntry = {
+      ...cloneCommand(state.command),
+      n: (name ?? state.presets.entries[String(nextId)]?.n ?? `Preset ${nextId}`).slice(0, 32),
+      ql: state.presets.entries[String(nextId)]?.ql
+    };
+
+    set({
+      presets: {
+        ...state.presets,
+        entries: {
+          ...state.presets.entries,
+          [String(nextId)]: entry
+        },
+        currentPresetId: nextId
+      }
+    });
+
+    return nextId;
+  },
+
+  deletePreset: (id) =>
+    set((state) => {
+      const next = { ...state.presets.entries };
+      delete next[String(id)];
+      return {
+        presets: {
+          ...state.presets,
+          entries: next,
+          currentPresetId: state.presets.currentPresetId === id ? null : state.presets.currentPresetId
+        }
+      };
+    }),
+
+  applyPreset: (id) =>
+    set((state) => {
+      const entry = state.presets.entries[String(id)];
+      if (!entry) return {};
+
+      const command = commandFromPreset(entry);
+      const updates: Partial<StudioState> = {
+        command,
+        rawJson: stringifyCommand(command),
+        presets: {
+          ...state.presets,
+          currentPresetId: id
+        }
+      };
+
+      if (entry.playlist) {
+        const normalized = normalizePlaylistForRuntime(entry.playlist);
+        if (normalized.playlist) {
+          updates.presets = {
+            ...state.presets,
+            currentPresetId: id,
+            activePlaylist: buildPlaylistRuntime(normalized.playlist, id, state.simulatedMillis)
+          };
+          updates.warnings = normalized.warnings;
+        }
+      } else {
+        updates.presets = {
+          ...state.presets,
+          currentPresetId: id,
+          activePlaylist: null
+        };
+      }
+
+      return updates;
+    }),
+
+  setPresetQuickLabel: (id, quickLabel) =>
+    set((state) => {
+      const entry = state.presets.entries[String(id)];
+      if (!entry) return {};
+      return {
+        presets: {
+          ...state.presets,
+          entries: {
+            ...state.presets.entries,
+            [String(id)]: {
+              ...entry,
+              ql: quickLabel.slice(0, 8)
+            }
+          }
+        }
+      };
+    }),
+
+  setPlaylistForPreset: (id, payload) =>
+    set((state) => {
+      const entry = state.presets.entries[String(id)];
+      if (!entry) return {};
+      const normalized = normalizePlaylistForRuntime(payload);
+      if (!normalized.playlist) {
+        return {
+          warnings: normalized.warnings.concat(state.warnings)
+        };
+      }
+      return {
+        presets: {
+          ...state.presets,
+          entries: {
+            ...state.presets.entries,
+            [String(id)]: {
+              ...entry,
+              playlist: normalized.playlist
+            }
+          }
+        },
+        warnings: normalized.warnings
+      };
+    }),
+
+  clearPlaylistForPreset: (id) =>
+    set((state) => {
+      const entry = state.presets.entries[String(id)];
+      if (!entry) return {};
+      const next = { ...entry };
+      delete next.playlist;
+      return {
+        presets: {
+          ...state.presets,
+          entries: {
+            ...state.presets.entries,
+            [String(id)]: next
+          }
+        }
+      };
+    }),
+
+  startPlaylist: (payload, sourcePresetId = null) =>
+    set((state) => {
+      const normalized = normalizePlaylistForRuntime(payload);
+      if (!normalized.playlist) {
+        return {
+          warnings: normalized.warnings.concat(state.warnings)
+        };
+      }
+
+      return {
+        presets: {
+          ...state.presets,
+          activePlaylist: buildPlaylistRuntime(normalized.playlist, sourcePresetId, state.simulatedMillis)
+        },
+        warnings: normalized.warnings
+      };
+    }),
+
+  stopPlaylist: () =>
+    set((state) => ({
+      presets: {
+        ...state.presets,
+        activePlaylist: null
+      }
+    })),
+
+  advancePlaylist: () =>
+    set((state) => {
+      if (!state.presets.activePlaylist) return {};
+      return {
+        presets: {
+          ...state.presets,
+          activePlaylist: {
+            ...state.presets.activePlaylist,
+            advanceRequested: true
+          }
+        }
+      };
+    }),
+
+  tickPlaylist: (simulatedMillis) =>
+    set((state) => {
+      const runtime = state.presets.activePlaylist;
+      if (!runtime) return {};
+
+      const shouldAdvance = (() => {
+        if (runtime.pendingImmediate) return true;
+        if (runtime.advanceRequested) return true;
+        const durationTenths = runtime.dur[runtime.index] ?? 0;
+        if (durationTenths <= 0) return false;
+        return simulatedMillis - runtime.lastAdvanceMillis >= durationTenths * 100;
+      })();
+
+      if (!shouldAdvance) return {};
+
+      let workingOrder = runtime.activeOrder;
+      let nextIndex = (runtime.index + 1) % Math.max(1, workingOrder.length);
+      let remainingRepetitions = runtime.remainingRepetitions;
+
+      if (nextIndex === 0) {
+        if (remainingRepetitions === 1) {
+          const updates: Partial<StudioState> = {
+            presets: {
+              ...state.presets,
+              activePlaylist: null
+            }
+          };
+
+          let endPreset = runtime.end;
+          if (endPreset === 255) endPreset = runtime.sourcePresetId ?? 0;
+          if (endPreset > 0 && endPreset <= 250) {
+            const entry = state.presets.entries[String(endPreset)];
+            if (entry) {
+              updates.command = commandFromPreset(entry);
+              updates.rawJson = stringifyCommand(updates.command);
+              updates.presets = {
+                ...state.presets,
+                currentPresetId: endPreset,
+                activePlaylist: null
+              };
+            }
+          }
+
+          return updates;
+        }
+
+        if (remainingRepetitions > 1) remainingRepetitions -= 1;
+        if (runtime.r) {
+          workingOrder = shufflePlaylistOrder(runtime.sourceOrder);
+          nextIndex = 0;
+        }
+      }
+
+      const presetId = workingOrder[nextIndex] ?? 0;
+      const entry = state.presets.entries[String(presetId)];
+      const command = entry ? commandFromPreset(entry) : state.command;
+
+      return {
+        command,
+        rawJson: stringifyCommand(command),
+        presets: {
+          ...state.presets,
+          currentPresetId: entry ? presetId : state.presets.currentPresetId,
+          activePlaylist: {
+            ...runtime,
+            activeOrder: workingOrder,
+            index: nextIndex,
+            remainingRepetitions,
+            pendingImmediate: false,
+            advanceRequested: false,
+            lastAdvanceMillis: simulatedMillis
+          }
+        }
+      };
+    }),
+
+  replacePresetLibrary: (entries, warnings = []) =>
+    set((state) => {
+      const normalized: Record<string, WledPresetEntry> = {};
+      for (const [id, entry] of Object.entries(entries)) {
+        const idNum = Number(id);
+        if (!Number.isInteger(idNum) || idNum < 0 || idNum > 250) continue;
+        normalized[String(idNum)] = clonePresetEntry(entry);
+      }
+      return {
+        presets: {
+          ...state.presets,
+          entries: normalized,
+          currentPresetId: state.presets.currentPresetId && normalized[String(state.presets.currentPresetId)] ? state.presets.currentPresetId : null,
+          activePlaylist: null
+        },
+        warnings
+      };
+    }),
+
+  setVisualizationEnabled: (enabled) =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        enabled
+      }
+    })),
+
+  setVisualizationBackground: (background) =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        background
+      }
+    })),
+
+  startVisualizationStrip: () =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        drawing: true,
+        draftPoints: []
+      }
+    })),
+
+  addVisualizationPoint: (x, y) =>
+    set((state) => {
+      if (!state.visualization.drawing) return {};
+      return {
+        visualization: {
+          ...state.visualization,
+          draftPoints: [...state.visualization.draftPoints, [Math.round(x), Math.round(y)]]
+        }
+      };
+    }),
+
+  finishVisualizationStrip: () =>
+    set((state) => {
+      if (!state.visualization.drawing || state.visualization.draftPoints.length < 2) return {};
+      const strip: PaintedStrip = {
+        id: createStripId(),
+        points: state.visualization.draftPoints.slice(),
+        ledCount: 0,
+        createdAt: Date.now()
+      };
+      const links: StripSegmentLink[] = [
+        ...state.visualization.links,
+        {
+          stripId: strip.id,
+          segmentIndex: clampSegmentIndex(state.ui.selectedSegmentIndex, commandSegments(state.command).length)
+        }
+      ];
+      const visualization: VisualizationProject = {
+        ...state.visualization,
+        strips: [...state.visualization.strips, strip],
+        links,
+        drawing: false,
+        draftPoints: []
+      };
+
+      return applyVisualizationSync(state, visualization);
+    }),
+
+  cancelVisualizationStrip: () =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        drawing: false,
+        draftPoints: []
+      }
+    })),
+
+  removeVisualizationStrip: (stripId) =>
+    set((state) => {
+      const visualization: VisualizationProject = {
+        ...state.visualization,
+        strips: state.visualization.strips.filter((strip) => strip.id !== stripId),
+        links: state.visualization.links.filter((link) => link.stripId !== stripId)
+      };
+      return applyVisualizationSync(state, visualization);
+    }),
+
+  mapVisualizationStrip: (stripId, segmentIndex) =>
+    set((state) => {
+      const nextLinks = state.visualization.links.slice();
+      const index = nextLinks.findIndex((link) => link.stripId === stripId);
+      const nextValue = {
+        stripId,
+        segmentIndex: Math.max(0, Math.round(segmentIndex))
+      };
+      if (index >= 0) nextLinks[index] = nextValue;
+      else nextLinks.push(nextValue);
+      const visualization: VisualizationProject = {
+        ...state.visualization,
+        links: nextLinks
+      };
+      return applyVisualizationSync(state, visualization);
+    }),
+
+  updateVisualizationStripLedCount: (stripId, ledCount) =>
+    set((state) => {
+      const visualization: VisualizationProject = {
+        ...state.visualization,
+        strips: state.visualization.strips.map((strip) => (strip.id === stripId ? { ...strip, ledCount: Math.max(1, Math.round(ledCount)) } : strip))
+      };
+      return applyVisualizationSync(state, visualization);
+    }),
+
+  importVisualizationProject: (project) =>
+    set((state) => {
+      const visualization: VisualizationProject = {
+        ...state.visualization,
+        ...project,
+        strips: Array.isArray(project.strips)
+          ? project.strips
+              .filter((strip): strip is PaintedStrip => Boolean(strip && Array.isArray(strip.points) && strip.points.length >= 2 && typeof strip.id === "string"))
+              .map((strip) => ({
+                ...strip,
+                points: strip.points.map(([x, y]) => [Number(x) || 0, Number(y) || 0]),
+                ledCount: Math.max(0, Math.round(strip.ledCount || 0)),
+                createdAt: Number.isFinite(strip.createdAt) ? strip.createdAt : Date.now()
+              }))
+          : state.visualization.strips,
+        links: Array.isArray(project.links)
+          ? project.links
+              .filter((link): link is StripSegmentLink => Boolean(link && typeof link.stripId === "string" && Number.isFinite(link.segmentIndex)))
+              .map((link) => ({ stripId: link.stripId, segmentIndex: Math.max(0, Math.round(link.segmentIndex)) }))
+          : state.visualization.links,
+        draftPoints: [],
+        drawing: false
+      };
+
+      return applyVisualizationSync(state, visualization);
+    }),
+
+  exportVisualizationProject: () => {
+    const state = get();
+    const payload = {
+      background: state.visualization.background,
+      strips: state.visualization.strips,
+      links: state.visualization.links,
+      derivedIndexMap: state.visualization.derivedIndexMap
+    };
+    return JSON.stringify(payload, null, 2);
+  }
 }));

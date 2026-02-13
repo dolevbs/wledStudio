@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCfgJson, buildPresetsJson } from "../src/io/jsonIO";
+import { buildCfgJson, buildPresetsJson, buildPresetsJsonFromLibrary } from "../src/io/jsonIO";
 import { sanitizeTopology, sanitizeWledEnvelope } from "../src/io/sanitize";
 
 describe("io sanitization", () => {
@@ -121,5 +121,40 @@ describe("io export", () => {
     expect(parsed["0"].seg.pal).toBe(2);
     expect(parsed["0"].seg.c1).toBe(64);
     expect(parsed["0"].seg.c2).toBe(32);
+  });
+
+  it("exports preset library with playlists", () => {
+    const json = buildPresetsJsonFromLibrary({
+      entries: {
+        "1": {
+          n: "Playlist Preset",
+          on: true,
+          bri: 160,
+          seg: {
+            fx: 8,
+            sx: 128,
+            ix: 128,
+            pal: 2,
+            c1: 64,
+            c2: 32,
+            col: [[255, 170, 0], [0, 0, 0], [0, 0, 0]]
+          },
+          playlist: {
+            ps: [1, 2, 3],
+            dur: [100, 100, 100],
+            transition: [0, 0, 0],
+            repeat: 0,
+            r: true
+          }
+        }
+      },
+      currentPresetId: null,
+      activePlaylist: null
+    });
+
+    const parsed = JSON.parse(json);
+    expect(parsed["1"].n).toBe("Playlist Preset");
+    expect(parsed["1"].playlist.ps).toEqual([1, 2, 3]);
+    expect(parsed["1"].playlist.r).toBe(true);
   });
 });

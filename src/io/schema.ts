@@ -1,4 +1,4 @@
-import type { StudioTopology, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
+import type { StudioTopology, WledJsonEnvelope, WledPlaylistPayload, WledSegmentPayload } from "@/types/studio";
 
 export interface ValidationResult {
   valid: boolean;
@@ -100,6 +100,45 @@ function validateSegment(segment: WledSegmentPayload, prefix: string): string[] 
   return errors;
 }
 
+function validatePlaylist(playlist: WledPlaylistPayload, prefix: string): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(playlist.ps) || playlist.ps.length === 0) {
+    errors.push(`${prefix}.ps must be a non-empty array`);
+  } else {
+    playlist.ps.forEach((presetId, index) => {
+      if (!isNonNegativeInt(presetId) || presetId < 1 || presetId > 250) {
+        errors.push(`${prefix}.ps[${index}] must be an integer between 1 and 250`);
+      }
+    });
+  }
+
+  const validateTimeLike = (value: number[] | number, key: "dur" | "transition") => {
+    if (Array.isArray(value)) {
+      if (value.length === 0) errors.push(`${prefix}.${key} array cannot be empty`);
+      value.forEach((entry, index) => {
+        if (!isNonNegativeInt(entry)) errors.push(`${prefix}.${key}[${index}] must be a non-negative integer`);
+      });
+      return;
+    }
+    if (!isNonNegativeInt(value)) errors.push(`${prefix}.${key} must be a non-negative integer or array`);
+  };
+
+  validateTimeLike(playlist.dur, "dur");
+  validateTimeLike(playlist.transition, "transition");
+
+  if (!Number.isInteger(playlist.repeat)) {
+    errors.push(`${prefix}.repeat must be an integer`);
+  }
+  if (playlist.end !== undefined && (!Number.isInteger(playlist.end) || playlist.end < 0 || playlist.end > 255)) {
+    errors.push(`${prefix}.end must be an integer between 0 and 255`);
+  }
+  if (playlist.r !== undefined && typeof playlist.r !== "boolean") {
+    errors.push(`${prefix}.r must be a boolean`);
+  }
+
+  return errors;
+}
+
 export function validateWledEnvelope(payload: WledJsonEnvelope): ValidationResult {
   const errors: string[] = [];
 
@@ -112,14 +151,23 @@ export function validateWledEnvelope(payload: WledJsonEnvelope): ValidationResul
   }
 
   const segments = Array.isArray(payload.seg) ? payload.seg : payload.seg ? [payload.seg] : [];
-  if (segments.length === 0) {
-    errors.push("seg is required");
-  } else {
+  if (segments.length > 0) {
     for (let index = 0; index < segments.length; index += 1) {
       const segment = segments[index];
       const prefix = segments.length === 1 && !Array.isArray(payload.seg) ? "seg" : `seg[${index}]`;
       errors.push(...validateSegment(segment, prefix));
     }
+  }
+
+  if (payload.playlist !== undefined) {
+    errors.push(...validatePlaylist(payload.playlist, "playlist"));
+  }
+  if (segments.length === 0 && payload.playlist === undefined) {
+    errors.push("either seg or playlist is required");
+  }
+
+  if (payload.np !== undefined && typeof payload.np !== "boolean") {
+    errors.push("np must be a boolean");
   }
 
   return { valid: errors.length === 0, errors };

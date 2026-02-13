@@ -142,6 +142,14 @@ export function StudioShell() {
     workerRef.current?.postMessage({ type: "running", running: state.simulation.running });
   }, [state.simulation.running]);
 
+  useEffect(() => {
+    state.tickPlaylist(state.simulatedMillis);
+  }, [state.simulatedMillis, state.tickPlaylist]);
+
+  useEffect(() => {
+    rendererRef.current?.setOverridePositions(state.visualization.enabled ? state.visualization.derivedPositions : null);
+  }, [state.visualization.enabled, state.visualization.derivedPositions]);
+
   const onReset = () => {
     if (DEBUG_SIM) {
       pushDiag("[StudioShell] postMessage:reset");
@@ -156,7 +164,7 @@ export function StudioShell() {
         running={state.simulation.running}
         onToggleRunning={() => state.setRunning(!state.simulation.running)}
         onResetClock={onReset}
-        onExport={() => exportCfgAndPresets(state.topology, state.command)}
+        onExport={() => exportCfgAndPresets(state.topology, state.command, state.presets)}
       />
 
       <LedConfigCard
@@ -180,6 +188,8 @@ export function StudioShell() {
         command={state.command}
         selectedSegmentIndex={state.ui.selectedSegmentIndex}
         segmentCount={Array.isArray(state.command.seg) ? state.command.seg.length : 1}
+        presets={state.presets}
+        visualization={state.visualization}
         setControl={state.setControl}
         setControlAt={state.setControlAt}
         setColorScheme={state.setColorScheme}
@@ -190,6 +200,26 @@ export function StudioShell() {
         setSelectedSegment={state.setSelectedSegment}
         addSegment={state.addSegment}
         removeSegmentAt={state.removeSegmentAt}
+        savePreset={state.savePreset}
+        deletePreset={state.deletePreset}
+        applyPreset={state.applyPreset}
+        setPresetQuickLabel={state.setPresetQuickLabel}
+        setPlaylistForPreset={state.setPlaylistForPreset}
+        clearPlaylistForPreset={state.clearPlaylistForPreset}
+        startPlaylist={state.startPlaylist}
+        stopPlaylist={state.stopPlaylist}
+        advancePlaylist={state.advancePlaylist}
+        setVisualizationEnabled={state.setVisualizationEnabled}
+        setVisualizationBackground={state.setVisualizationBackground}
+        startVisualizationStrip={state.startVisualizationStrip}
+        addVisualizationPoint={state.addVisualizationPoint}
+        finishVisualizationStrip={state.finishVisualizationStrip}
+        cancelVisualizationStrip={state.cancelVisualizationStrip}
+        removeVisualizationStrip={state.removeVisualizationStrip}
+        mapVisualizationStrip={state.mapVisualizationStrip}
+        updateVisualizationStripLedCount={state.updateVisualizationStripLedCount}
+        importVisualizationProject={state.importVisualizationProject}
+        exportVisualizationProject={state.exportVisualizationProject}
       />
 
       <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer}>
@@ -205,8 +235,10 @@ export function StudioShell() {
             state={{
               topology: state.topology,
               command: state.command,
+              presets: state.presets,
               replaceTopology: state.replaceTopology,
-              replaceCommand: state.replaceCommand
+              replaceCommand: state.replaceCommand,
+              replacePresetLibrary: state.replacePresetLibrary
             }}
           />
           <JsonPanel

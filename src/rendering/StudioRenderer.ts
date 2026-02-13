@@ -16,6 +16,7 @@ export class StudioRenderer {
   private centerY = 0;
   private worldMidX = 0;
   private worldMidY = 0;
+  private overridePositions: Vec3[] | null = null;
 
   constructor(canvas: HTMLCanvasElement, topology: StudioTopology) {
     this.canvas = canvas;
@@ -38,6 +39,11 @@ export class StudioRenderer {
     this.frame = buffer;
   }
 
+  setOverridePositions(positions: Vec3[] | null): void {
+    this.overridePositions = positions;
+    this.recomputeProjection();
+  }
+
   render(): void {
     const width = this.canvas.width;
     const height = this.canvas.height;
@@ -47,9 +53,10 @@ export class StudioRenderer {
     ctx.fillStyle = "#060b12";
     ctx.fillRect(0, 0, width, height);
 
-    const count = Math.min(this.positions.length, Math.floor(this.frame.length / 3));
+    const activePositions = this.overridePositions ?? this.positions;
+    const count = Math.min(activePositions.length, Math.floor(this.frame.length / 3));
     for (let i = 0; i < count; i += 1) {
-      const [x, y] = this.positions[i];
+      const [x, y] = activePositions[i]!;
       const sx = this.centerX + (x - this.worldMidX) * this.scale;
       const sy = this.centerY - (y - this.worldMidY) * this.scale;
 
@@ -99,7 +106,8 @@ export class StudioRenderer {
   }
 
   private recomputeProjection(): void {
-    if (this.positions.length === 0) {
+    const activePositions = this.overridePositions ?? this.positions;
+    if (activePositions.length === 0) {
       this.scale = 1;
       this.radius = 4;
       this.worldMidX = 0;
@@ -111,8 +119,8 @@ export class StudioRenderer {
     let maxX = Number.NEGATIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
-    for (let i = 0; i < this.positions.length; i += 1) {
-      const [x, y] = this.positions[i];
+    for (let i = 0; i < activePositions.length; i += 1) {
+      const [x, y] = activePositions[i]!;
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
       minY = Math.min(minY, y);

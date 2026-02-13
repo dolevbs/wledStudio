@@ -45,10 +45,78 @@ export interface WledSegmentPayload {
   col?: number[][];
 }
 
+export interface WledPlaylistPayload {
+  ps: number[];
+  dur: number[] | number;
+  transition: number[] | number;
+  repeat: number;
+  end?: number;
+  r?: boolean;
+}
+
 export interface WledJsonEnvelope {
   on?: boolean;
   bri?: number;
   seg?: WledSegmentPayload | WledSegmentPayload[];
+  playlist?: WledPlaylistPayload;
+  np?: boolean;
+}
+
+export interface WledPresetEntry extends WledJsonEnvelope {
+  n?: string;
+  ql?: string;
+}
+
+export interface PlaylistRuntimeState {
+  sourcePresetId: number | null;
+  sourceOrder: number[];
+  activeOrder: number[];
+  dur: number[];
+  transition: number[];
+  repeat: number;
+  end: number;
+  r: boolean;
+  index: number;
+  lastAdvanceMillis: number;
+  remainingRepetitions: number;
+  pendingImmediate: boolean;
+  advanceRequested: boolean;
+}
+
+export interface StudioPresetLibrary {
+  entries: Record<string, WledPresetEntry>;
+  currentPresetId: number | null;
+  activePlaylist: PlaylistRuntimeState | null;
+}
+
+export interface BackgroundAsset {
+  name: string;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+export interface PaintedStrip {
+  id: string;
+  points: Array<[number, number]>;
+  ledCount: number;
+  createdAt: number;
+}
+
+export interface StripSegmentLink {
+  stripId: string;
+  segmentIndex: number;
+}
+
+export interface VisualizationProject {
+  enabled: boolean;
+  background: BackgroundAsset | null;
+  strips: PaintedStrip[];
+  links: StripSegmentLink[];
+  derivedIndexMap: number[];
+  derivedPositions: Array<[number, number, number]>;
+  draftPoints: Array<[number, number]>;
+  drawing: boolean;
 }
 
 export interface ImportResult<T = unknown> {
