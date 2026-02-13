@@ -1,4 +1,5 @@
-import type { ImportResult, StudioTopology, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
+import type { ImportResult, StudioTopology, WledJsonEnvelope, WledPlaylistPayload, WledSegmentPayload } from "@/types/studio";
+import { normalizePlaylistPayload } from "@/state/playlist";
 
 function clampByte(value: unknown, fallback: number): number {
   const n = Number(value);
@@ -115,7 +116,32 @@ export function sanitizeWledEnvelope(input: unknown): ImportResult<WledJsonEnvel
     seg = sanitizeSegment(segSource, warnings);
   }
 
-  const sanitized: WledJsonEnvelope = { on, bri, seg };
+  let playlist: WledPlaylistPayload | undefined;
+  if (src.playlist !== undefined) {
+    const playlistSource = asObject(src.playlist);
+    if (!playlistSource) {
+      warnings.push("Invalid playlist field; expected object");
+    } else {
+      const normalized = normalizePlaylistPayload({
+        ps: Array.isArray(playlistSource.ps) ? playlistSource.ps.map((value) => Number(value)) : [],
+        dur: Array.isArray(playlistSource.dur)
+          ? playlistSource.dur.map((value) => Number(value))
+          : Number(playlistSource.dur ?? 100),
+        transition: Array.isArray(playlistSource.transition)
+          ? playlistSource.transition.map((value) => Number(value))
+          : Number(playlistSource.transition ?? 0),
+        repeat: Number(playlistSource.repeat ?? 0),
+        end: playlistSource.end === undefined ? undefined : Number(playlistSource.end),
+        r: Boolean(playlistSource.r)
+      });
+      warnings.push(...normalized.warnings);
+      if (normalized.playlist) playlist = normalized.playlist;
+    }
+  }
+
+  const np = src.np === true;
+
+  const sanitized: WledJsonEnvelope = { on, bri, seg, playlist, np };
   return { data: sanitized, warnings };
 }
 

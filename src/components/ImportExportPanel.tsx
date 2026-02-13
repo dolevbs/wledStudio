@@ -5,9 +5,10 @@ import { useState, type ChangeEvent } from "react";
 import { buildExportArtifacts } from "@/io/jsonIO";
 import { sanitizeTopology, sanitizeWledEnvelope } from "@/io/sanitize";
 import type { StudioState } from "@/state/studioStore";
+import type { WledPresetEntry } from "@/types/studio";
 
 interface ImportExportPanelProps {
-  state: Pick<StudioState, "topology" | "command" | "replaceTopology" | "replaceCommand">;
+  state: Pick<StudioState, "topology" | "command" | "presets" | "replaceTopology" | "replaceCommand" | "replacePresetLibrary">;
 }
 
 function downloadFile(filename: string, content: string): void {
@@ -20,8 +21,12 @@ function downloadFile(filename: string, content: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function exportCfgAndPresets(topology: StudioState["topology"], command: StudioState["command"]): void {
-  const artifacts = buildExportArtifacts(topology, command);
+export function exportCfgAndPresets(
+  topology: StudioState["topology"],
+  command: StudioState["command"],
+  presets?: StudioState["presets"]
+): void {
+  const artifacts = buildExportArtifacts(topology, command, presets);
   downloadFile("cfg.json", artifacts.cfgJson);
   downloadFile("presets.json", artifacts.presetsJson);
 }
@@ -31,12 +36,32 @@ function firstPresetValue(input: Record<string, unknown>): unknown {
   return firstKey ? input[firstKey] : null;
 }
 
+function sanitizePresetsFile(input: Record<string, unknown>): { entries: Record<string, WledPresetEntry>; warnings: string[] } {
+  const entries: Record<string, WledPresetEntry> = {};
+  const warnings: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    const id = Number(key);
+    if (!Number.isInteger(id) || id < 0 || id > 250) {
+      warnings.push(`Ignored preset key '${key}' (must be integer 0..250)`);
+      continue;
+    }
+    const sanitized = sanitizeWledEnvelope(value);
+    entries[String(id)] = {
+      ...(sanitized.data as WledPresetEntry),
+      n: typeof (value as Record<string, unknown>)?.n === "string" ? ((value as Record<string, unknown>).n as string).slice(0, 32) : undefined,
+      ql: typeof (value as Record<string, unknown>)?.ql === "string" ? ((value as Record<string, unknown>).ql as string).slice(0, 8) : undefined
+    };
+    warnings.push(...sanitized.warnings.map((warning) => `preset ${id}: ${warning}`));
+  }
+  return { entries, warnings };
+}
+
 export function ImportExportPanel({ state }: ImportExportPanelProps) {
   const [message, setMessage] = useState("Ready");
 
   const onExport = () => {
     try {
-      exportCfgAndPresets(state.topology, state.command);
+      exportCfgAndPresets(state.topology, state.command, state.presets);
       setMessage("Exported cfg.json and presets.json");
     } catch (error) {
       setMessage(`Export failed: ${String(error)}`);
@@ -67,6 +92,15 @@ export function ImportExportPanel({ state }: ImportExportPanelProps) {
         const sanitizedTopology = sanitizeTopology(topology);
         state.replaceTopology(sanitizedTopology.data);
         setMessage(`Imported topology with ${sanitizedTopology.warnings.length} warning(s)`);
+        return;
+      }
+
+      const keys = Object.keys(parsed);
+      const isPresetsFile = keys.every((key) => Number.isInteger(Number(key)));
+      if (isPresetsFile) {
+        const sanitizedLibrary = sanitizePresetsFile(parsed);
+        state.replacePresetLibrary(sanitizedLibrary.entries, sanitizedLibrary.warnings);
+        setMessage(`Imported preset library with ${Object.keys(sanitizedLibrary.entries).length} entries (${sanitizedLibrary.warnings.length} warning(s))`);
         return;
       }
 
