@@ -24,6 +24,7 @@ export interface StudioState {
   setSerpentine: (enabled: boolean) => void;
   setGaps: (gaps: string) => void;
   setControl: (key: "on" | "bri" | "fx" | "sx" | "ix" | "pal" | "c1" | "c2", value: number | boolean) => void;
+  setControlAt: (index: number, key: "on" | "bri" | "fx" | "sx" | "ix" | "pal" | "c1" | "c2", value: number | boolean) => void;
   setColorScheme: (scheme: Pick<ColorSchemeOption, "pal" | "col">) => void;
   setSegmentColor: (slot: 0 | 1 | 2, color: [number, number, number]) => void;
   setSegmentName: (name: string) => void;
@@ -32,6 +33,7 @@ export interface StudioState {
   setSelectedSegment: (index: number) => void;
   addSegment: () => void;
   removeSelectedSegment: () => void;
+  removeSegmentAt: (index: number) => void;
   setRawJson: (raw: string) => void;
   applyRawJson: () => string | null;
   setRunning: (running: boolean) => void;
@@ -43,11 +45,11 @@ export interface StudioState {
 }
 
 const DEFAULT_TOPOLOGY: StudioTopology = {
-  mode: "matrix",
+  mode: "strip",
   ledCount: 150,
-  width: 30,
-  height: 5,
-  serpentine: true,
+  width: 150,
+  height: 1,
+  serpentine: false,
   gaps: []
 };
 
@@ -55,6 +57,10 @@ const DEFAULT_COMMAND: WledJsonEnvelope = {
   on: true,
   bri: 180,
   seg: {
+    start: 0,
+    stop: DEFAULT_TOPOLOGY.ledCount,
+    on: true,
+    bri: 125,
     fx: 8,
     sx: 128,
     ix: 128,
@@ -104,6 +110,22 @@ function clampSegmentIndex(index: number, segmentCount: number): number {
   return Math.max(0, Math.min(segmentCount - 1, Math.round(index)));
 }
 
+function ensureSingleSegmentCoversStrip(command: WledJsonEnvelope, ledCount: number): WledJsonEnvelope {
+  const segments = commandSegments(command);
+  if (segments.length !== 1) {
+    return command;
+  }
+  const segment = segments[0];
+  segment.start = 0;
+  segment.stop = Math.max(1, Math.round(ledCount));
+  segment.on = segment.on ?? true;
+  segment.bri = segment.bri ?? 125;
+  return {
+    ...command,
+    seg: normalizeCommandSegments(segments)
+  };
+}
+
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
@@ -117,6 +139,43 @@ function selectedSegment(state: Pick<StudioState, "command" | "ui">): { segments
   const segmentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
   const segment = segments[segmentIndex] ?? segments[0];
   return { segments, segment };
+}
+
+function applyControlToSegment(
+  baseCommand: WledJsonEnvelope,
+  targetIndex: number,
+  key: "on" | "bri" | "fx" | "sx" | "ix" | "pal" | "c1" | "c2",
+  value: number | boolean
+): WledJsonEnvelope {
+  const segments = commandSegments(baseCommand);
+  const segmentIndex = clampSegmentIndex(targetIndex, segments.length);
+  const target = segments[segmentIndex] ?? segments[0];
+
+  const next: WledJsonEnvelope = {
+    ...baseCommand,
+    seg: normalizeCommandSegments(segments)
+  };
+
+  if (key === "on" && typeof value === "boolean") {
+    next.on = value;
+  } else if (key === "bri" && typeof value === "number") {
+    next.bri = Math.max(0, Math.min(255, Math.round(value)));
+  } else if (key === "fx" && typeof value === "number") {
+    const effectId = Math.max(0, Math.min(255, Math.round(value)));
+    target.fx = effectId;
+    const defaults = parseEffectDefaults(effectId);
+    target.sx = defaults.sx ?? 128;
+    target.ix = defaults.ix ?? 128;
+    target.pal = defaults.pal ?? target.pal ?? 0;
+    if (typeof defaults.c1 === "number") target.c1 = defaults.c1;
+    else delete target.c1;
+    if (typeof defaults.c2 === "number") target.c2 = defaults.c2;
+    else delete target.c2;
+  } else if ((key === "sx" || key === "ix" || key === "pal" || key === "c1" || key === "c2") && typeof value === "number") {
+    target[key] = Math.max(0, Math.min(255, Math.round(value)));
+  }
+  next.seg = normalizeCommandSegments(segments);
+  return next;
 }
 
 function normalizeDimensions(mode: "strip" | "matrix", width: number, height: number, ledCount: number): Pick<StudioTopology, "width" | "height" | "ledCount"> {
@@ -176,23 +235,31 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setMode: (mode) =>
     set((state) => {
       const next = normalizeDimensions(mode, state.topology.width, state.topology.height, state.topology.ledCount);
+      const topology = {
+        ...state.topology,
+        mode,
+        ...next
+      };
+      const command = ensureSingleSegmentCoversStrip(state.command, topology.ledCount);
       return {
-        topology: {
-          ...state.topology,
-          mode,
-          ...next
-        }
+        topology,
+        command,
+        rawJson: stringifyCommand(command)
       };
     }),
 
   setDimensions: (width, height) =>
     set((state) => {
       const next = normalizeDimensions(state.topology.mode, width, height, state.topology.ledCount);
+      const topology = {
+        ...state.topology,
+        ...next
+      };
+      const command = ensureSingleSegmentCoversStrip(state.command, topology.ledCount);
       return {
-        topology: {
-          ...state.topology,
-          ...next
-        }
+        topology,
+        command,
+        rawJson: stringifyCommand(command)
       };
     }),
 
@@ -202,13 +269,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (state.topology.mode === "matrix") {
         return {};
       }
+      const topology = {
+        ...state.topology,
+        ledCount: safe,
+        width: safe,
+        height: 1
+      };
+      const command = ensureSingleSegmentCoversStrip(state.command, topology.ledCount);
       return {
-        topology: {
-          ...state.topology,
-          ledCount: safe,
-          width: safe,
-          height: 1
-        }
+        topology,
+        command,
+        rawJson: stringifyCommand(command)
       };
     }),
 
@@ -241,34 +312,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   setControl: (key, value) =>
     set((state) => {
-      const segments = commandSegments(state.command);
-      const segmentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
-      const target = segments[segmentIndex] ?? segments[0];
-      const next: WledJsonEnvelope = {
-        ...state.command,
-        seg: normalizeCommandSegments(segments)
+      const next = applyControlToSegment(state.command, state.ui.selectedSegmentIndex, key, value);
+
+      return {
+        command: next,
+        rawJson: stringifyCommand(next)
       };
+    }),
 
-      if (key === "on" && typeof value === "boolean") {
-        next.on = value;
-      } else if (key === "bri" && typeof value === "number") {
-        next.bri = Math.max(0, Math.min(255, Math.round(value)));
-      } else if (key === "fx" && typeof value === "number") {
-        const effectId = Math.max(0, Math.min(255, Math.round(value)));
-        target.fx = effectId;
-        const defaults = parseEffectDefaults(effectId);
-        target.sx = defaults.sx ?? 128;
-        target.ix = defaults.ix ?? 128;
-        target.pal = defaults.pal ?? target.pal ?? 0;
-        if (typeof defaults.c1 === "number") target.c1 = defaults.c1;
-        else delete target.c1;
-        if (typeof defaults.c2 === "number") target.c2 = defaults.c2;
-        else delete target.c2;
-      } else if ((key === "sx" || key === "ix" || key === "pal" || key === "c1" || key === "c2") && typeof value === "number") {
-        target[key] = Math.max(0, Math.min(255, Math.round(value)));
-      }
-      next.seg = normalizeCommandSegments(segments);
-
+  setControlAt: (index, key, value) =>
+    set((state) => {
+      const next = applyControlToSegment(state.command, index, key, value);
       return {
         command: next,
         rawJson: stringifyCommand(next)
@@ -335,6 +389,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
       if (key === "bri" || key === "grp" || key === "spc") {
         segment[key] = clampByte(value);
+      } else if (key === "stop") {
+        // UI stop is inclusive; store model uses WLED-exclusive stop.
+        segment.stop = clampNonNegativeInt(value) + 1;
       } else {
         segment[key] = clampNonNegativeInt(value);
       }
@@ -413,7 +470,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const currentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
       const template = cloneSegment(segments[currentIndex] ?? segments[0]);
       const newIndex = segments.length;
-      const nextSegment: WledSegmentPayload = { ...template, i: newIndex };
+      const nextSegment: WledSegmentPayload = {
+        ...template,
+        i: newIndex,
+        on: template.on ?? true,
+        bri: template.bri ?? 125
+      };
       segments.push(nextSegment);
 
       const next: WledJsonEnvelope = {
@@ -441,10 +503,37 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const currentIndex = clampSegmentIndex(state.ui.selectedSegmentIndex, segments.length);
       segments.splice(currentIndex, 1);
       const nextIndex = clampSegmentIndex(currentIndex, segments.length);
-      const next: WledJsonEnvelope = {
+      let next: WledJsonEnvelope = {
         ...state.command,
         seg: normalizeCommandSegments(segments)
       };
+      next = ensureSingleSegmentCoversStrip(next, state.topology.ledCount);
+
+      return {
+        command: next,
+        rawJson: stringifyCommand(next),
+        ui: {
+          ...state.ui,
+          selectedSegmentIndex: nextIndex
+        }
+      };
+    }),
+
+  removeSegmentAt: (index) =>
+    set((state) => {
+      const segments = commandSegments(state.command);
+      if (segments.length <= 1) {
+        return {};
+      }
+
+      const removeIndex = clampSegmentIndex(index, segments.length);
+      segments.splice(removeIndex, 1);
+      const nextIndex = clampSegmentIndex(removeIndex, segments.length);
+      let next: WledJsonEnvelope = {
+        ...state.command,
+        seg: normalizeCommandSegments(segments)
+      };
+      next = ensureSingleSegmentCoversStrip(next, state.topology.ledCount);
 
       return {
         command: next,
@@ -496,7 +585,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       lastError: error
     }),
 
-  replaceTopology: (topology) => set({ topology }),
+  replaceTopology: (topology) =>
+    set((state) => {
+      const command = ensureSingleSegmentCoversStrip(state.command, topology.ledCount);
+      return {
+        topology,
+        command,
+        rawJson: stringifyCommand(command)
+      };
+    }),
 
   replaceCommand: (command, warnings = []) =>
     set((state) => {

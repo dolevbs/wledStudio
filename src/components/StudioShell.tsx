@@ -125,28 +125,7 @@ export function StudioShell() {
     workerRef.current?.postMessage({ type: "topology", ledCount: state.topology.ledCount });
   }, [state.topology]);
 
-  const commandPayload = useMemo(() => {
-    const command = state.command;
-    const selectedIndex = state.ui.selectedSegmentIndex;
-    if (!Array.isArray(command.seg) || command.seg.length <= 1) {
-      return JSON.stringify(command);
-    }
-
-    const safeIndex = Math.max(0, Math.min(command.seg.length - 1, selectedIndex));
-    if (safeIndex === 0) {
-      return JSON.stringify(command);
-    }
-
-    const reordered = [...command.seg];
-    const [selected] = reordered.splice(safeIndex, 1);
-    if (selected) {
-      reordered.unshift(selected);
-    }
-    return JSON.stringify({
-      ...command,
-      seg: reordered
-    });
-  }, [state.command, state.ui.selectedSegmentIndex]);
+  const commandPayload = useMemo(() => JSON.stringify(state.command), [state.command]);
   useEffect(() => {
     if (DEBUG_SIM) {
       pushDiag("[StudioShell] postMessage:json", {
@@ -202,6 +181,7 @@ export function StudioShell() {
         selectedSegmentIndex={state.ui.selectedSegmentIndex}
         segmentCount={Array.isArray(state.command.seg) ? state.command.seg.length : 1}
         setControl={state.setControl}
+        setControlAt={state.setControlAt}
         setColorScheme={state.setColorScheme}
         setSegmentColor={state.setSegmentColor}
         setSegmentName={state.setSegmentName}
@@ -209,7 +189,7 @@ export function StudioShell() {
         setSegmentBooleanField={state.setSegmentBooleanField}
         setSelectedSegment={state.setSelectedSegment}
         addSegment={state.addSegment}
-        removeSelectedSegment={state.removeSelectedSegment}
+        removeSegmentAt={state.removeSegmentAt}
       />
 
       <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer}>

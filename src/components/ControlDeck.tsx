@@ -11,6 +11,7 @@ interface ControlDeckProps {
   selectedSegmentIndex: number;
   segmentCount: number;
   setControl: StudioState["setControl"];
+  setControlAt: StudioState["setControlAt"];
   setColorScheme: StudioState["setColorScheme"];
   setSegmentColor: StudioState["setSegmentColor"];
   setSegmentName: StudioState["setSegmentName"];
@@ -18,7 +19,7 @@ interface ControlDeckProps {
   setSegmentBooleanField: StudioState["setSegmentBooleanField"];
   setSelectedSegment: StudioState["setSelectedSegment"];
   addSegment: StudioState["addSegment"];
-  removeSelectedSegment: StudioState["removeSelectedSegment"];
+  removeSegmentAt: StudioState["removeSegmentAt"];
 }
 
 function getSegment(command: WledJsonEnvelope, index: number) {
@@ -32,7 +33,7 @@ function getSegments(command: WledJsonEnvelope) {
   if (Array.isArray(command.seg) && command.seg.length > 0) {
     return command.seg;
   }
-  if (command.seg) {
+  if (command.seg && !Array.isArray(command.seg)) {
     return [command.seg];
   }
   return [{}];
@@ -72,9 +73,15 @@ function segmentInt(segment: ReturnType<typeof getSegment>, key: "start" | "stop
   const value = segment?.[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
     if (key === "grp") return 1;
+    if (key === "bri") return 125;
     return 0;
   }
   return Math.max(0, Math.round(value));
+}
+
+function segmentStopInclusive(segment: ReturnType<typeof getSegment>): number {
+  const stopExclusive = segmentInt(segment, "stop");
+  return Math.max(0, stopExclusive - 1);
 }
 
 export function ControlDeck({
@@ -82,6 +89,7 @@ export function ControlDeck({
   selectedSegmentIndex,
   segmentCount,
   setControl,
+  setControlAt,
   setColorScheme,
   setSegmentColor,
   setSegmentName,
@@ -89,7 +97,7 @@ export function ControlDeck({
   setSegmentBooleanField,
   setSelectedSegment,
   addSegment,
-  removeSelectedSegment
+  removeSegmentAt
 }: ControlDeckProps) {
   const segment = getSegment(command, selectedSegmentIndex) ?? { fx: 8, sx: 128, ix: 128, pal: 0, c1: 0, c2: 0 };
   const segments = useMemo(() => getSegments(command), [command]);
@@ -169,7 +177,7 @@ export function ControlDeck({
               max={control.max}
               step={control.step ?? 1}
               value={controlValue(segment, control.key)}
-              onChange={(event) => setControl(control.key, Number(event.target.value))}
+              onChange={(event) => setControlAt(selectedSegmentIndex, control.key, Number(event.target.value))}
             />
           </label>
         ))}
@@ -179,7 +187,7 @@ export function ControlDeck({
               key={effect.id}
               type="button"
               className={effect.id === selectedEffect ? "pillButton active" : "pillButton"}
-              onClick={() => setControl("fx", effect.id)}
+              onClick={() => setControlAt(selectedSegmentIndex, "fx", effect.id)}
             >
               {effect.label}
             </button>
@@ -195,8 +203,8 @@ export function ControlDeck({
           </button>
           {segments.map((entry, index) => {
             const entryStart = segmentInt(entry, "start");
-            const entryStop = segmentInt(entry, "stop");
-            const entryLength = Math.max(0, entryStop - entryStart);
+            const entryStopInclusive = segmentStopInclusive(entry);
+            const entryLength = Math.max(0, entryStopInclusive - entryStart + 1);
             const open = isSegmentOpen(index);
             const segmentLabel = entry.n?.trim() ? entry.n : `Segment ${index}`;
 
@@ -224,7 +232,10 @@ export function ControlDeck({
                   <button
                     type="button"
                     className="segmentIconButton"
-                    onClick={() => toggleSegmentCard(index)}
+                    onClick={() => {
+                      setSelectedSegment(index);
+                      toggleSegmentCard(index);
+                    }}
                     aria-label={open ? "Collapse segment" : "Expand segment"}
                   >
                     {open ? "˄" : "˅"}
@@ -232,10 +243,7 @@ export function ControlDeck({
                   <button
                     type="button"
                     className="segmentIconButton"
-                    onClick={() => {
-                      setSelectedSegment(index);
-                      removeSelectedSegment();
-                    }}
+                    onClick={() => removeSegmentAt(index)}
                     disabled={segmentCount <= 1}
                     aria-disabled={segmentCount <= 1}
                     aria-label="Remove segment"
@@ -273,7 +281,7 @@ export function ControlDeck({
                       <input
                         type="number"
                         min={0}
-                        value={entryStop}
+                        value={entryStopInclusive}
                         onChange={(event) => applyToSegment(index, () => setSegmentNumericField("stop", Number(event.target.value)))}
                       />
                       <input
