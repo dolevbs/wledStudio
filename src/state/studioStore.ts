@@ -4,13 +4,15 @@ import type { ColorSchemeOption } from "@/config/simulationOptions";
 import { WLED_EFFECT_CATALOG } from "@/config/wledEffectCatalog";
 import { sanitizeTopology, sanitizeWledEnvelope } from "@/io/sanitize";
 import { recomputeVisualizationSync } from "@/rendering/visualization";
+import { clampScenePoint, clampViewport, identityViewport } from "@/rendering/visualizerViewport";
 import { normalizePlaylistPayload, shufflePlaylistOrder, type NormalizedPlaylist } from "@/state/playlist";
 import type {
   BackgroundAsset,
   PaintedStrip,
   PlaylistRuntimeState,
   SimulationConfig,
-  StripSegmentLink,
+  StripSegmentAllocation,
+  StripSegmentMap,
   StudioPresetLibrary,
   StudioTopology,
   VisualizationProject,
@@ -29,6 +31,8 @@ export interface StudioState {
   ui: {
     drawerOpen: boolean;
     selectedSegmentIndex: number;
+    ledViewHeightPx: number;
+    ledViewSizePreset: "s" | "m" | "l" | "custom";
   };
   rawJson: string;
   warnings: string[];
@@ -73,14 +77,21 @@ export interface StudioState {
   replacePresetLibrary: (entries: Record<string, WledPresetEntry>, warnings?: string[]) => void;
 
   setVisualizationEnabled: (enabled: boolean) => void;
+  setVisualizationLedOpacity: (opacity: number) => void;
   setVisualizationBackground: (background: BackgroundAsset | null) => void;
+  setVisualizationViewport: (zoom: number, panX: number, panY: number) => void;
+  resetVisualizationViewport: () => void;
+  setVisualizationImageScale: (scaleX: number, scaleY: number, lockAspectRatio?: boolean) => void;
+  setVisualizationAspectLock: (locked: boolean) => void;
   startVisualizationStrip: () => void;
   addVisualizationPoint: (x: number, y: number) => void;
   finishVisualizationStrip: () => void;
   cancelVisualizationStrip: () => void;
   removeVisualizationStrip: (stripId: string) => void;
-  mapVisualizationStrip: (stripId: string, segmentIndex: number) => void;
+  setStripSegmentAllocations: (stripId: string, allocations: StripSegmentAllocation[]) => void;
   updateVisualizationStripLedCount: (stripId: string, ledCount: number) => void;
+  setLedViewHeight: (heightPx: number) => void;
+  setLedViewSizePreset: (preset: "s" | "m" | "l") => void;
   importVisualizationProject: (project: Partial<VisualizationProject>) => void;
   exportVisualizationProject: () => string;
 }
@@ -120,8 +131,16 @@ const DEFAULT_SIMULATION: SimulationConfig = {
 };
 
 const DEFAULT_VISUALIZATION: VisualizationProject = {
+  schemaVersion: 2,
   enabled: false,
+  ledOpacity: 0.8,
   background: null,
+  viewport: identityViewport(),
+  imageFit: {
+    scaleX: 1,
+    scaleY: 1,
+    lockAspectRatio: true
+  },
   strips: [],
   links: [],
   derivedIndexMap: [],
@@ -195,6 +214,18 @@ function clampByte(value: number): number {
 
 function clampNonNegativeInt(value: number): number {
   return Math.max(0, Math.round(value));
+}
+
+const LED_VIEW_HEIGHT_MIN = 220;
+const LED_VIEW_HEIGHT_MAX = 720;
+const LED_VIEW_PRESET_HEIGHTS = {
+  s: 260,
+  m: 380,
+  l: 520
+} as const;
+
+function clampLedViewHeight(value: number): number {
+  return Math.max(LED_VIEW_HEIGHT_MIN, Math.min(LED_VIEW_HEIGHT_MAX, Math.round(value)));
 }
 
 function selectedSegment(state: Pick<StudioState, "command" | "ui">): { segments: WledSegmentPayload[]; segment: WledSegmentPayload } {
@@ -389,7 +420,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   visualization: DEFAULT_VISUALIZATION,
   ui: {
     drawerOpen: false,
-    selectedSegmentIndex: 0
+    selectedSegmentIndex: 0,
+    ledViewHeightPx: LED_VIEW_PRESET_HEIGHTS.m,
+    ledViewSizePreset: "m"
   },
   rawJson: stringifyCommand(DEFAULT_COMMAND),
   warnings: [],
@@ -1058,13 +1091,78 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
     })),
 
+  setVisualizationLedOpacity: (opacity) =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        ledOpacity: Math.max(0, Math.min(1, Number(opacity) || 0.8))
+      }
+    })),
+
   setVisualizationBackground: (background) =>
     set((state) => ({
       visualization: {
         ...state.visualization,
-        background
+        background,
+        viewport: identityViewport(),
+        imageFit: {
+          scaleX: 1,
+          scaleY: 1,
+          lockAspectRatio: true
+        }
       }
     })),
+
+  setVisualizationViewport: (zoom, panX, panY) =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        viewport: clampViewport({ zoom, panX, panY })
+      }
+    })),
+
+  resetVisualizationViewport: () =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        viewport: identityViewport()
+      }
+    })),
+
+  setVisualizationImageScale: (scaleX, scaleY, lockAspectRatio) =>
+    set((state) => {
+      const prev = state.visualization.imageFit;
+      const nextLock = typeof lockAspectRatio === "boolean" ? lockAspectRatio : prev.lockAspectRatio;
+      const safeX = Math.max(0.1, Math.min(8, Number(scaleX) || 1));
+      const safeYInput = Math.max(0.1, Math.min(8, Number(scaleY) || 1));
+      const safeY = nextLock ? safeX : safeYInput;
+      return {
+        visualization: {
+          ...state.visualization,
+          imageFit: {
+            scaleX: safeX,
+            scaleY: safeY,
+            lockAspectRatio: nextLock
+          }
+        }
+      };
+    }),
+
+  setVisualizationAspectLock: (locked) =>
+    set((state) => {
+      const nextLock = Boolean(locked);
+      const fit = state.visualization.imageFit;
+      return {
+        visualization: {
+          ...state.visualization,
+          imageFit: {
+            ...fit,
+            lockAspectRatio: nextLock,
+            scaleY: nextLock ? fit.scaleX : fit.scaleY
+          }
+        }
+      };
+    }),
 
   startVisualizationStrip: () =>
     set((state) => ({
@@ -1078,10 +1176,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   addVisualizationPoint: (x, y) =>
     set((state) => {
       if (!state.visualization.drawing) return {};
+      const [safeX, safeY] = clampScenePoint(Number(x) || 0, Number(y) || 0);
       return {
         visualization: {
           ...state.visualization,
-          draftPoints: [...state.visualization.draftPoints, [Math.round(x), Math.round(y)]]
+          draftPoints: [...state.visualization.draftPoints, [safeX, safeY]]
         }
       };
     }),
@@ -1095,11 +1194,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         ledCount: 0,
         createdAt: Date.now()
       };
-      const links: StripSegmentLink[] = [
+      const links: StripSegmentMap[] = [
         ...state.visualization.links,
         {
           stripId: strip.id,
-          segmentIndex: clampSegmentIndex(state.ui.selectedSegmentIndex, commandSegments(state.command).length)
+          allocations: [
+            {
+              segmentIndex: clampSegmentIndex(state.ui.selectedSegmentIndex, commandSegments(state.command).length),
+              share: 1
+            }
+          ]
         }
       ];
       const visualization: VisualizationProject = {
@@ -1132,13 +1236,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return applyVisualizationSync(state, visualization);
     }),
 
-  mapVisualizationStrip: (stripId, segmentIndex) =>
+  setStripSegmentAllocations: (stripId, allocations) =>
     set((state) => {
       const nextLinks = state.visualization.links.slice();
       const index = nextLinks.findIndex((link) => link.stripId === stripId);
+      const safeAllocations = allocations
+        .filter((entry) => Number.isFinite(entry.segmentIndex) && Number.isFinite(entry.share) && entry.share > 0)
+        .map((entry) => ({ segmentIndex: Math.max(0, Math.round(entry.segmentIndex)), share: Number(entry.share) }));
       const nextValue = {
         stripId,
-        segmentIndex: Math.max(0, Math.round(segmentIndex))
+        allocations: safeAllocations
       };
       if (index >= 0) nextLinks[index] = nextValue;
       else nextLinks.push(nextValue);
@@ -1158,26 +1265,81 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return applyVisualizationSync(state, visualization);
     }),
 
+  setLedViewHeight: (heightPx) =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        ledViewHeightPx: clampLedViewHeight(heightPx),
+        ledViewSizePreset: "custom"
+      }
+    })),
+
+  setLedViewSizePreset: (preset) =>
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        ledViewSizePreset: preset,
+        ledViewHeightPx: LED_VIEW_PRESET_HEIGHTS[preset]
+      }
+    })),
+
   importVisualizationProject: (project) =>
     set((state) => {
+      if (project.schemaVersion !== 2) {
+        return {
+          warnings: ["Visualizer import failed: only schemaVersion=2 projects are supported."]
+        };
+      }
+
+      const importedStrips = Array.isArray(project.strips)
+        ? project.strips
+            .filter((strip): strip is PaintedStrip => Boolean(strip && Array.isArray(strip.points) && strip.points.length >= 2 && typeof strip.id === "string"))
+            .map((strip) => ({
+              ...strip,
+              points: strip.points
+                .map(([x, y]) => [Number(x), Number(y)] as [number, number])
+                .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1),
+              ledCount: Math.max(0, Math.round(strip.ledCount || 0)),
+              createdAt: Number.isFinite(strip.createdAt) ? strip.createdAt : Date.now()
+            }))
+            .filter((strip) => strip.points.length >= 2)
+        : [];
+
+      const importedLinks = Array.isArray(project.links)
+        ? project.links
+            .filter((link): link is StripSegmentMap => Boolean(link && typeof link.stripId === "string" && Array.isArray(link.allocations)))
+            .map((link) => ({
+              stripId: link.stripId,
+              allocations: link.allocations
+                .filter((entry) => Number.isFinite(entry.segmentIndex) && Number.isFinite(entry.share) && entry.share > 0)
+                .map((entry) => ({ segmentIndex: Math.max(0, Math.round(entry.segmentIndex)), share: Number(entry.share) }))
+            }))
+            .filter((link) => link.allocations.length > 0)
+        : [];
+
+      const importedStripIds = new Set(importedStrips.map((strip) => strip.id));
+      const links = importedLinks.filter((link) => importedStripIds.has(link.stripId));
+      const viewport = clampViewport({
+        zoom: Number(project.viewport?.zoom ?? 1),
+        panX: Number(project.viewport?.panX ?? 0),
+        panY: Number(project.viewport?.panY ?? 0)
+      });
+      const imageFit = {
+        scaleX: Math.max(0.1, Math.min(8, Number(project.imageFit?.scaleX ?? 1))),
+        scaleY: Math.max(0.1, Math.min(8, Number(project.imageFit?.scaleY ?? 1))),
+        lockAspectRatio: project.imageFit?.lockAspectRatio !== false
+      };
+
       const visualization: VisualizationProject = {
         ...state.visualization,
-        ...project,
-        strips: Array.isArray(project.strips)
-          ? project.strips
-              .filter((strip): strip is PaintedStrip => Boolean(strip && Array.isArray(strip.points) && strip.points.length >= 2 && typeof strip.id === "string"))
-              .map((strip) => ({
-                ...strip,
-                points: strip.points.map(([x, y]) => [Number(x) || 0, Number(y) || 0]),
-                ledCount: Math.max(0, Math.round(strip.ledCount || 0)),
-                createdAt: Number.isFinite(strip.createdAt) ? strip.createdAt : Date.now()
-              }))
-          : state.visualization.strips,
-        links: Array.isArray(project.links)
-          ? project.links
-              .filter((link): link is StripSegmentLink => Boolean(link && typeof link.stripId === "string" && Number.isFinite(link.segmentIndex)))
-              .map((link) => ({ stripId: link.stripId, segmentIndex: Math.max(0, Math.round(link.segmentIndex)) }))
-          : state.visualization.links,
+        schemaVersion: 2,
+        enabled: Boolean(project.enabled),
+        ledOpacity: Math.max(0, Math.min(1, Number(project.ledOpacity ?? state.visualization.ledOpacity))),
+        background: project.background ?? null,
+        viewport,
+        imageFit: imageFit.lockAspectRatio ? { ...imageFit, scaleY: imageFit.scaleX } : imageFit,
+        strips: importedStrips,
+        links,
         draftPoints: [],
         drawing: false
       };
@@ -1188,7 +1350,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   exportVisualizationProject: () => {
     const state = get();
     const payload = {
+      schemaVersion: 2 as const,
+      enabled: state.visualization.enabled,
+      ledOpacity: state.visualization.ledOpacity,
       background: state.visualization.background,
+      viewport: state.visualization.viewport,
+      imageFit: state.visualization.imageFit,
       strips: state.visualization.strips,
       links: state.visualization.links,
       derivedIndexMap: state.visualization.derivedIndexMap

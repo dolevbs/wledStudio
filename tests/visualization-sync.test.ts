@@ -15,14 +15,18 @@ describe("visualization sync", () => {
 
   it("maps strips to segment ranges and creates derived positions", () => {
     const project: VisualizationProject = {
+      schemaVersion: 2,
       enabled: true,
+      ledOpacity: 0.8,
       background: null,
+      viewport: { zoom: 1, panX: 0, panY: 0 },
+      imageFit: { scaleX: 1, scaleY: 1, lockAspectRatio: true },
       strips: [
         {
           id: "strip_1",
           points: [
             [0, 0],
-            [100, 0]
+            [1, 0]
           ],
           ledCount: 8,
           createdAt: 1
@@ -30,16 +34,16 @@ describe("visualization sync", () => {
         {
           id: "strip_2",
           points: [
-            [0, 20],
-            [100, 20]
+            [0, 0.2],
+            [1, 0.2]
           ],
           ledCount: 6,
           createdAt: 2
         }
       ],
       links: [
-        { stripId: "strip_1", segmentIndex: 0 },
-        { stripId: "strip_2", segmentIndex: 1 }
+        { stripId: "strip_1", allocations: [{ segmentIndex: 0, share: 1 }] },
+        { stripId: "strip_2", allocations: [{ segmentIndex: 1, share: 1 }] }
       ],
       derivedIndexMap: [],
       derivedPositions: [],
@@ -58,5 +62,50 @@ describe("visualization sync", () => {
     expect(segments[0]?.stop).toBe(8);
     expect(segments[1]?.start).toBe(8);
     expect(segments[1]?.stop).toBe(14);
+  });
+
+  it("splits one strip across multiple segments by share", () => {
+    const project: VisualizationProject = {
+      schemaVersion: 2,
+      enabled: true,
+      ledOpacity: 0.8,
+      background: null,
+      viewport: { zoom: 1, panX: 0, panY: 0 },
+      imageFit: { scaleX: 1, scaleY: 1, lockAspectRatio: true },
+      strips: [
+        {
+          id: "strip_multi",
+          points: [
+            [0, 0],
+            [0.5, 0.5],
+            [1, 0]
+          ],
+          ledCount: 10,
+          createdAt: 1
+        }
+      ],
+      links: [
+        {
+          stripId: "strip_multi",
+          allocations: [
+            { segmentIndex: 0, share: 0.4 },
+            { segmentIndex: 1, share: 0.6 }
+          ]
+        }
+      ],
+      derivedIndexMap: [],
+      derivedPositions: [],
+      draftPoints: [],
+      drawing: false
+    };
+
+    const result = recomputeVisualizationSync(project, baseCommand);
+    const segments = result.segments;
+    expect(result.topologyLedCount).toBe(10);
+    expect(result.derivedPositions.length).toBe(10);
+    expect(segments[0]?.start).toBe(0);
+    expect(segments[0]?.stop).toBe(4);
+    expect(segments[1]?.start).toBe(4);
+    expect(segments[1]?.stop).toBe(10);
   });
 });

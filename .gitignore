@@ -9,3 +9,4 @@ public/wasm/wled.data
 public/wasm/wled.worker.js
 vendor/WLED/.pio
 vendor/WLED/.vscode
+skills/

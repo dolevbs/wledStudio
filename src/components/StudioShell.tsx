@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ControlDeck } from "@/components/ControlDeck";
 import { exportCfgAndPresets, ImportExportPanel } from "@/components/ImportExportPanel";
 import { JsonPanel } from "@/components/JsonPanel";
-import { LedConfigCard } from "@/components/LedConfigCard";
 import { LedViewCard } from "@/components/LedViewCard";
+import { projectSceneToViewport } from "@/rendering/visualizerViewport";
 import { StudioRenderer } from "@/rendering/StudioRenderer";
 import { TopBar } from "@/components/TopBar";
 import { UtilityDrawer } from "@/components/UtilityDrawer";
@@ -20,7 +20,10 @@ export function StudioShell() {
   const workerRef = useRef<Worker | null>(null);
   const frameRef = useRef<Uint8Array>(new Uint8Array());
   const frameCountRef = useRef(0);
+  const resizeVersionRef = useRef(0);
+  const resizeRafRef = useRef<number | null>(null);
   const [diagLines, setDiagLines] = useState<string[]>([]);
+  const [viewportMetrics, setViewportMetrics] = useState<{ width: number; height: number }>({ width: 1, height: 1 });
 
   const state = useStudioStore();
 
@@ -30,6 +33,28 @@ export function StudioShell() {
     console.log("[diag]", formatted);
     setDiagLines((prev) => [...prev.slice(-9), formatted]);
   };
+
+  const scheduleRendererResize = useCallback(() => {
+    resizeVersionRef.current += 1;
+    if (resizeRafRef.current !== null) {
+      window.cancelAnimationFrame(resizeRafRef.current);
+    }
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      rendererRef.current?.resize();
+      resizeRafRef.current = null;
+    });
+  }, []);
+
+  const onViewportMetrics = useCallback(
+    (metrics: { width: number; height: number }) => {
+      setViewportMetrics((prev) => {
+        if (prev.width === metrics.width && prev.height === metrics.height) return prev;
+        return metrics;
+      });
+      scheduleRendererResize();
+    },
+    [scheduleRendererResize]
+  );
 
   useEffect(() => {
     if (!canvasRef.current) {
@@ -94,12 +119,21 @@ export function StudioShell() {
 
     workerRef.current = worker;
 
-    const resize = () => rendererRef.current?.resize();
+    const resize = () => scheduleRendererResize();
+    const canvasResizeObserver = new ResizeObserver(() => {
+      scheduleRendererResize();
+    });
+    canvasResizeObserver.observe(canvasRef.current);
     window.addEventListener("resize", resize);
 
     let animationFrame = 0;
     const renderLoop = () => {
+      const frameVersion = resizeVersionRef.current;
       rendererRef.current?.updateFrame(frameRef.current);
+      if (frameVersion !== resizeVersionRef.current) {
+        animationFrame = window.requestAnimationFrame(renderLoop);
+        return;
+      }
       rendererRef.current?.render();
       animationFrame = window.requestAnimationFrame(renderLoop);
     };
@@ -110,12 +144,17 @@ export function StudioShell() {
         pushDiag("[StudioShell] teardown");
       }
       window.cancelAnimationFrame(animationFrame);
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
       window.removeEventListener("resize", resize);
+      canvasResizeObserver.disconnect();
       worker.terminate();
       rendererRef.current?.dispose();
       rendererRef.current = null;
     };
-  }, []);
+  }, [scheduleRendererResize]);
 
   useEffect(() => {
     rendererRef.current?.updateTopology(state.topology);
@@ -146,9 +185,22 @@ export function StudioShell() {
     state.tickPlaylist(state.simulatedMillis);
   }, [state.simulatedMillis, state.tickPlaylist]);
 
+  const viewportAdjustedDerivedPositions = useMemo(
+    () =>
+      state.visualization.derivedPositions.map(([x, y, z]) => {
+        const [sx, sy] = projectSceneToViewport([x, y], state.visualization.viewport, viewportMetrics.width, viewportMetrics.height);
+        return [sx, sy, z] as [number, number, number];
+      }),
+    [state.visualization.derivedPositions, state.visualization.viewport, viewportMetrics]
+  );
+
   useEffect(() => {
-    rendererRef.current?.setOverridePositions(state.visualization.enabled ? state.visualization.derivedPositions : null);
-  }, [state.visualization.enabled, state.visualization.derivedPositions]);
+    rendererRef.current?.setOverridePositions(state.visualization.enabled ? viewportAdjustedDerivedPositions : null, "screen");
+  }, [state.visualization.enabled, viewportAdjustedDerivedPositions]);
+
+  useEffect(() => {
+    rendererRef.current?.setLedOpacity(state.visualization.ledOpacity);
+  }, [state.visualization.ledOpacity]);
 
   const onReset = () => {
     if (DEBUG_SIM) {
@@ -167,21 +219,32 @@ export function StudioShell() {
         onExport={() => exportCfgAndPresets(state.topology, state.command, state.presets)}
       />
 
-      <LedConfigCard
-        topology={state.topology}
-        onModeChange={state.setMode}
-        onDimensionsChange={state.setDimensions}
-        onLedCountChange={state.setLedCount}
-        onSerpentineChange={state.setSerpentine}
-        onGapsChange={state.setGaps}
-      />
-
       <LedViewCard
         canvasRef={canvasRef}
         ledCount={state.topology.ledCount}
         simulatedMillis={state.simulatedMillis}
         simTickRate={state.simulation.simTickRate}
         lastError={state.lastError}
+        visualization={state.visualization}
+        segmentCount={Array.isArray(state.command.seg) ? state.command.seg.length : 1}
+        ledViewHeightPx={state.ui.ledViewHeightPx}
+        setLedViewHeight={state.setLedViewHeight}
+        addSegment={state.addSegment}
+        setVisualizationEnabled={state.setVisualizationEnabled}
+        setVisualizationLedOpacity={state.setVisualizationLedOpacity}
+        setVisualizationBackground={state.setVisualizationBackground}
+        setVisualizationViewport={state.setVisualizationViewport}
+        resetVisualizationViewport={state.resetVisualizationViewport}
+        startVisualizationStrip={state.startVisualizationStrip}
+        addVisualizationPoint={state.addVisualizationPoint}
+        finishVisualizationStrip={state.finishVisualizationStrip}
+        cancelVisualizationStrip={state.cancelVisualizationStrip}
+        removeVisualizationStrip={state.removeVisualizationStrip}
+        setStripSegmentAllocations={state.setStripSegmentAllocations}
+        updateVisualizationStripLedCount={state.updateVisualizationStripLedCount}
+        importVisualizationProject={state.importVisualizationProject}
+        exportVisualizationProject={state.exportVisualizationProject}
+        onViewportMetrics={onViewportMetrics}
       />
 
       <ControlDeck
@@ -189,7 +252,6 @@ export function StudioShell() {
         selectedSegmentIndex={state.ui.selectedSegmentIndex}
         segmentCount={Array.isArray(state.command.seg) ? state.command.seg.length : 1}
         presets={state.presets}
-        visualization={state.visualization}
         setControl={state.setControl}
         setControlAt={state.setControlAt}
         setColorScheme={state.setColorScheme}
@@ -209,17 +271,6 @@ export function StudioShell() {
         startPlaylist={state.startPlaylist}
         stopPlaylist={state.stopPlaylist}
         advancePlaylist={state.advancePlaylist}
-        setVisualizationEnabled={state.setVisualizationEnabled}
-        setVisualizationBackground={state.setVisualizationBackground}
-        startVisualizationStrip={state.startVisualizationStrip}
-        addVisualizationPoint={state.addVisualizationPoint}
-        finishVisualizationStrip={state.finishVisualizationStrip}
-        cancelVisualizationStrip={state.cancelVisualizationStrip}
-        removeVisualizationStrip={state.removeVisualizationStrip}
-        mapVisualizationStrip={state.mapVisualizationStrip}
-        updateVisualizationStripLedCount={state.updateVisualizationStripLedCount}
-        importVisualizationProject={state.importVisualizationProject}
-        exportVisualizationProject={state.exportVisualizationProject}
       />
 
       <UtilityDrawer open={state.ui.drawerOpen} onToggle={state.toggleDrawer}>

@@ -1,4 +1,11 @@
-import type { PaintedStrip, StripSegmentLink, VisualizationProject, WledJsonEnvelope, WledSegmentPayload } from "@/types/studio";
+import type {
+  PaintedStrip,
+  StripSegmentAllocation,
+  StripSegmentMap,
+  VisualizationProject,
+  WledJsonEnvelope,
+  WledSegmentPayload
+} from "@/types/studio";
 
 export interface VisualizationSyncResult {
   topologyLedCount: number;
@@ -53,21 +60,60 @@ function interpolatePolyline(points: Array<[number, number]>, count: number): Ar
   return out;
 }
 
+function sanitizeAllocations(allocations: StripSegmentAllocation[] | undefined): StripSegmentAllocation[] {
+  const safe = (allocations ?? [])
+    .filter((item) => Number.isFinite(item.segmentIndex) && Number.isFinite(item.share) && item.share > 0)
+    .map((item) => ({ segmentIndex: Math.max(0, Math.round(item.segmentIndex)), share: Number(item.share) }));
+
+  const shareSum = safe.reduce((sum, item) => sum + item.share, 0);
+  if (shareSum <= 0) return [];
+
+  return safe.map((item) => ({ ...item, share: item.share / shareSum }));
+}
+
+function splitCountsByShare(total: number, allocations: StripSegmentAllocation[]): number[] {
+  const raw = allocations.map((allocation) => allocation.share * total);
+  const base = raw.map((value) => Math.floor(value));
+  let assigned = base.reduce((sum, value) => sum + value, 0);
+  const remainders = raw.map((value, index) => ({ index, remainder: value - base[index]! }));
+  remainders.sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  let cursor = 0;
+  while (assigned < total && cursor < remainders.length) {
+    const entry = remainders[cursor]!;
+    base[entry.index] = (base[entry.index] ?? 0) + 1;
+    assigned += 1;
+    cursor += 1;
+  }
+
+  return base;
+}
+
 export function recomputeVisualizationSync(project: VisualizationProject, command: WledJsonEnvelope): VisualizationSyncResult {
   const baseSegments = segmentArray(command);
   const strips = project.strips;
-  const linksByStrip = new Map<string, StripSegmentLink>();
+  const linksByStrip = new Map<string, StripSegmentMap>();
   for (const link of project.links) linksByStrip.set(link.stripId, link);
 
-  const mapped: Array<{ strip: PaintedStrip; link: StripSegmentLink; ledCount: number }> = [];
+  type MappedStrip = {
+    strip: PaintedStrip;
+    allocations: StripSegmentAllocation[];
+    ledCount: number;
+    points: Array<[number, number, number]>;
+  };
+
+  const mapped: MappedStrip[] = [];
   for (const strip of strips) {
     const link = linksByStrip.get(strip.id);
     if (!link || strip.points.length < 2) continue;
-    const estimated = Math.max(2, Math.round(polylineLength(strip.points) / 14));
-    mapped.push({ strip, link, ledCount: strip.ledCount > 0 ? strip.ledCount : estimated });
+    const allocations = sanitizeAllocations(link.allocations);
+    if (allocations.length === 0) continue;
+    const estimated = Math.max(2, Math.round((polylineLength(strip.points) * 1000) / 14));
+    const ledCount = strip.ledCount > 0 ? strip.ledCount : estimated;
+    const points = interpolatePolyline(strip.points, Math.max(1, Math.round(ledCount)));
+    if (points.length === 0) continue;
+    mapped.push({ strip, allocations, ledCount: points.length, points });
   }
-
-  mapped.sort((a, b) => a.link.segmentIndex - b.link.segmentIndex || a.strip.createdAt - b.strip.createdAt);
 
   if (mapped.length === 0) {
     return {
@@ -78,25 +124,50 @@ export function recomputeVisualizationSync(project: VisualizationProject, comman
     };
   }
 
-  const highestSegment = mapped.reduce((max, entry) => Math.max(max, entry.link.segmentIndex), 0);
+  let highestSegment = 0;
+  for (const entry of mapped) {
+    for (const allocation of entry.allocations) {
+      highestSegment = Math.max(highestSegment, allocation.segmentIndex);
+    }
+  }
+
   while (baseSegments.length <= highestSegment) {
     baseSegments.push({ ...(baseSegments[baseSegments.length - 1] ?? baseSegments[0] ?? {}) });
   }
 
-  let cursor = 0;
+  const buckets: Array<Array<[number, number, number]>> = new Array(baseSegments.length).fill(0).map(() => []);
+
+  mapped.sort((a, b) => a.strip.createdAt - b.strip.createdAt);
+
+  for (const entry of mapped) {
+    const counts = splitCountsByShare(entry.ledCount, entry.allocations);
+    let offset = 0;
+
+    for (let i = 0; i < entry.allocations.length; i += 1) {
+      const allocation = entry.allocations[i]!;
+      const count = counts[i] ?? 0;
+      if (count <= 0) continue;
+      const nextSlice = entry.points.slice(offset, offset + count);
+      buckets[allocation.segmentIndex]!.push(...nextSlice);
+      offset += count;
+    }
+
+    if (offset < entry.points.length && entry.allocations.length > 0) {
+      const lastSegment = entry.allocations[entry.allocations.length - 1]!.segmentIndex;
+      buckets[lastSegment]!.push(...entry.points.slice(offset));
+    }
+  }
+
   const derivedPositions: Array<[number, number, number]> = [];
+  let cursor = 0;
 
   for (let segIndex = 0; segIndex < baseSegments.length; segIndex += 1) {
-    const segmentStrips = mapped.filter((entry) => entry.link.segmentIndex === segIndex);
-    if (segmentStrips.length === 0) continue;
+    const points = buckets[segIndex] ?? [];
+    if (points.length === 0) continue;
 
     const start = cursor;
-    for (const entry of segmentStrips) {
-      const count = Math.max(1, Math.round(entry.ledCount));
-      const points = interpolatePolyline(entry.strip.points, count);
-      derivedPositions.push(...points);
-      cursor += points.length;
-    }
+    derivedPositions.push(...points);
+    cursor += points.length;
     const stop = Math.max(start + 1, cursor);
 
     const seg = baseSegments[segIndex] ?? {};

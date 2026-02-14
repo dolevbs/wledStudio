@@ -213,11 +213,85 @@ input[type="checkbox"] {
   background: linear-gradient(180deg, rgba(13, 15, 21, 0.95), rgba(5, 7, 12, 0.98));
 }
 
+.ledViewToolbar {
+  margin-top: 10px;
+  align-items: center;
+}
+
+.ledOpacityField {
+  min-width: 130px;
+}
+
+.ledUploadButton {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ledUploadButton input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ledViewInteractive {
+  position: relative;
+}
+
 .studioCanvas {
   width: 100%;
-  height: min(28vh, 240px);
-  min-height: 180px;
+  height: 100%;
+  min-height: 0;
   display: block;
+}
+
+.ledOverlayImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: 0.72;
+  pointer-events: none;
+  transform-origin: center center;
+}
+
+.ledOverlaySvg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ledVisualizerList {
+  margin-top: 10px;
+}
+
+.ledResizeHandle {
+  margin-top: 6px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.22));
+  cursor: ns-resize;
+}
+
+.ledStripConfigHeader {
+  margin-top: 10px;
+}
+
+.allocationList {
+  display: grid;
+  gap: 8px;
+}
+
+.allocationRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
 }
 
 .controlDeck {
@@ -622,8 +696,7 @@ textarea {
     flex-wrap: wrap;
   }
 
-  .studioCanvas {
-    height: min(32vh, 210px);
-    min-height: 150px;
+  .allocationRow {
+    grid-template-columns: 1fr;
   }
 }

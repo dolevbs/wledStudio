@@ -2,6 +2,7 @@ import type { StudioTopology } from "@/types/studio";
 import { buildLedPositions, buildPhysicalIndexMap } from "@/rendering/topology";
 
 type Vec3 = [number, number, number];
+type OverrideMode = "world" | "normalized" | "screen";
 
 export class StudioRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -17,6 +18,8 @@ export class StudioRenderer {
   private worldMidX = 0;
   private worldMidY = 0;
   private overridePositions: Vec3[] | null = null;
+  private overrideMode: OverrideMode = "world";
+  private ledOpacity = 0.8;
 
   constructor(canvas: HTMLCanvasElement, topology: StudioTopology) {
     this.canvas = canvas;
@@ -39,9 +42,14 @@ export class StudioRenderer {
     this.frame = buffer;
   }
 
-  setOverridePositions(positions: Vec3[] | null): void {
+  setOverridePositions(positions: Vec3[] | null, mode: OverrideMode = "world"): void {
     this.overridePositions = positions;
+    this.overrideMode = mode;
     this.recomputeProjection();
+  }
+
+  setLedOpacity(opacity: number): void {
+    this.ledOpacity = Math.max(0, Math.min(1, opacity));
   }
 
   render(): void {
@@ -55,15 +63,18 @@ export class StudioRenderer {
 
     const activePositions = this.overridePositions ?? this.positions;
     const count = Math.min(activePositions.length, Math.floor(this.frame.length / 3));
+    const cssWidth = Math.max(1, this.canvas.clientWidth);
+    const cssHeight = Math.max(1, this.canvas.clientHeight);
     for (let i = 0; i < count; i += 1) {
       const [x, y] = activePositions[i]!;
-      const sx = this.centerX + (x - this.worldMidX) * this.scale;
-      const sy = this.centerY - (y - this.worldMidY) * this.scale;
+      const sx = this.overrideMode === "screen" ? x : this.overrideMode === "normalized" ? x * cssWidth : this.centerX + (x - this.worldMidX) * this.scale;
+      const sy = this.overrideMode === "screen" ? y : this.overrideMode === "normalized" ? y * cssHeight : this.centerY - (y - this.worldMidY) * this.scale;
 
       const offset = i * 3;
       const r = this.frame[offset] ?? 0;
       const g = this.frame[offset + 1] ?? 0;
       const b = this.frame[offset + 2] ?? 0;
+      ctx.globalAlpha = this.ledOpacity;
 
       if (r === 0 && g === 0 && b === 0) {
         ctx.fillStyle = "#050505";
@@ -75,6 +86,7 @@ export class StudioRenderer {
       ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
   }
 
   resize(): void {
@@ -107,6 +119,13 @@ export class StudioRenderer {
 
   private recomputeProjection(): void {
     const activePositions = this.overridePositions ?? this.positions;
+    if (this.overrideMode !== "world") {
+      this.scale = 1;
+      this.radius = 4;
+      this.worldMidX = 0;
+      this.worldMidY = 0;
+      return;
+    }
     if (activePositions.length === 0) {
       this.scale = 1;
       this.radius = 4;

@@ -98,21 +98,43 @@ export interface BackgroundAsset {
 
 export interface PaintedStrip {
   id: string;
+  // Normalized scene coordinates in [0..1].
   points: Array<[number, number]>;
   ledCount: number;
   createdAt: number;
 }
 
-export interface StripSegmentLink {
-  stripId: string;
+export interface StripSegmentAllocation {
   segmentIndex: number;
+  share: number;
+}
+
+export interface StripSegmentMap {
+  stripId: string;
+  allocations: StripSegmentAllocation[];
+}
+
+export interface VisualizationImageFit {
+  scaleX: number;
+  scaleY: number;
+  lockAspectRatio: boolean;
+}
+
+export interface VisualizationViewport {
+  zoom: number;
+  panX: number;
+  panY: number;
 }
 
 export interface VisualizationProject {
+  schemaVersion: 2;
   enabled: boolean;
+  ledOpacity: number;
   background: BackgroundAsset | null;
+  viewport: VisualizationViewport;
+  imageFit: VisualizationImageFit;
   strips: PaintedStrip[];
-  links: StripSegmentLink[];
+  links: StripSegmentMap[];
   derivedIndexMap: number[];
   derivedPositions: Array<[number, number, number]>;
   draftPoints: Array<[number, number]>;
