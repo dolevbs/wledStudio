@@ -81,6 +81,7 @@ export interface StudioState {
   setVisualizationEnabled: (enabled: boolean) => void;
   setVisualizationLedOpacity: (opacity: number) => void;
   setVisualizationBackground: (background: BackgroundAsset | null) => void;
+  setVisualizationBackgroundVisible: (visible: boolean) => void;
   setVisualizationViewport: (zoom: number, panX: number, panY: number) => void;
   resetVisualizationViewport: () => void;
   setVisualizationImageScale: (scaleX: number, scaleY: number, lockAspectRatio?: boolean) => void;
@@ -138,6 +139,7 @@ const DEFAULT_VISUALIZATION: VisualizationProject = {
   ledOpacity: 0.8,
   userLedOpacityOverride: false,
   background: null,
+  backgroundVisible: true,
   viewport: identityViewport(),
   imageFit: {
     scaleX: 1,
@@ -499,7 +501,10 @@ function partializeStudioState(state: StudioState): PersistedStudioState {
     simulation: state.simulation,
     command: state.command,
     presets: state.presets,
-    visualization: state.visualization,
+    visualization: {
+      ...state.visualization,
+      backgroundVisible: true
+    },
     ui: state.ui,
     rawJson: state.rawJson
   };
@@ -1191,12 +1196,21 @@ export const useStudioStore = create<StudioState>()(
         ...state.visualization,
         ledOpacity: background && !state.visualization.userLedOpacityOverride ? 1 : state.visualization.ledOpacity,
         background,
+        backgroundVisible: true,
         viewport: identityViewport(),
         imageFit: {
           scaleX: 1,
           scaleY: 1,
           lockAspectRatio: true
         }
+      }
+    })),
+
+  setVisualizationBackgroundVisible: (visible) =>
+    set((state) => ({
+      visualization: {
+        ...state.visualization,
+        backgroundVisible: Boolean(visible)
       }
     })),
 
@@ -1425,6 +1439,7 @@ export const useStudioStore = create<StudioState>()(
         userLedOpacityOverride:
           typeof project.userLedOpacityOverride === "boolean" ? project.userLedOpacityOverride : typeof project.ledOpacity === "number",
         background: project.background ?? null,
+        backgroundVisible: true,
         viewport,
         imageFit: imageFit.lockAspectRatio ? { ...imageFit, scaleY: imageFit.scaleX } : imageFit,
         strips: importedStrips,

@@ -143,4 +143,48 @@ describe("visualization project store contract", () => {
     state = useStudioStore.getState();
     expect(state.visualization.ledOpacity).toBeCloseTo(0.8, 6);
   });
+
+  it("toggles background visibility without clearing the uploaded asset", () => {
+    const background = {
+      name: "test.png",
+      dataUrl: "data:image/png;base64,abc",
+      width: 100,
+      height: 100
+    };
+
+    let state = useStudioStore.getState();
+    state.setVisualizationBackground(background);
+    state = useStudioStore.getState();
+    expect(state.visualization.background).toEqual(background);
+    expect(state.visualization.backgroundVisible).toBe(true);
+
+    state.setVisualizationBackgroundVisible(false);
+    state = useStudioStore.getState();
+    expect(state.visualization.backgroundVisible).toBe(false);
+    expect(state.visualization.background).toEqual(background);
+
+    state.setVisualizationBackgroundVisible(true);
+    state = useStudioStore.getState();
+    expect(state.visualization.backgroundVisible).toBe(true);
+    expect(state.visualization.background).toEqual(background);
+  });
+
+  it("resets visibility to shown on import for predictable reload behavior", () => {
+    useStudioStore.getState().importVisualizationProject({
+      schemaVersion: 2,
+      enabled: true,
+      ledOpacity: 1,
+      background: {
+        name: "test.png",
+        dataUrl: "data:image/png;base64,abc",
+        width: 100,
+        height: 100
+      },
+      strips: [],
+      links: []
+    });
+
+    const state = useStudioStore.getState();
+    expect(state.visualization.backgroundVisible).toBe(true);
+  });
 });

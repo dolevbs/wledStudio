@@ -58,6 +58,30 @@ describe("studio store persistence", () => {
     expect("warnings" in persistedState).toBe(false);
   });
 
+  it("resets background visibility to shown after rehydrate", async () => {
+    const state = useStudioStore.getState();
+    state.setVisualizationBackground({
+      name: "bg.png",
+      dataUrl: "data:image/png;base64,abc",
+      width: 10,
+      height: 10
+    });
+    state.setVisualizationBackgroundVisible(false);
+
+    const persisted = await storage().getItem(STUDIO_STATE_STORAGE_KEY);
+    expect(persisted).toBeTruthy();
+
+    useStudioStore.setState((prev) => ({
+      visualization: { ...prev.visualization, backgroundVisible: true }
+    }));
+    await storage().setItem(STUDIO_STATE_STORAGE_KEY, persisted!);
+    await useStudioStore.persist.rehydrate();
+
+    const next = useStudioStore.getState();
+    expect(next.visualization.background).toBeTruthy();
+    expect(next.visualization.backgroundVisible).toBe(true);
+  });
+
   it("resetState restores defaults and clears persisted key", async () => {
     const state = useStudioStore.getState();
     state.setLedCount(300);

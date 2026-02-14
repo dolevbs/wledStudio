@@ -20,6 +20,7 @@ describe("visualization sync", () => {
       ledOpacity: 0.8,
       userLedOpacityOverride: false,
       background: null,
+      backgroundVisible: true,
       viewport: { zoom: 1, panX: 0, panY: 0 },
       imageFit: { scaleX: 1, scaleY: 1, lockAspectRatio: true },
       strips: [
@@ -72,6 +73,7 @@ describe("visualization sync", () => {
       ledOpacity: 0.8,
       userLedOpacityOverride: false,
       background: null,
+      backgroundVisible: true,
       viewport: { zoom: 1, panX: 0, panY: 0 },
       imageFit: { scaleX: 1, scaleY: 1, lockAspectRatio: true },
       strips: [

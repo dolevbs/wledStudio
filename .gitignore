@@ -10,4 +10,3 @@ public/wasm/wled.worker.js
 vendor/WLED/.pio
 vendor/WLED/.vscode
 skills/
-docs/product/

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  default as React,
   useEffect,
   useMemo,
   useRef,
@@ -29,6 +30,7 @@ interface LedViewCardProps {
   setVisualizationEnabled: StudioState["setVisualizationEnabled"];
   setVisualizationLedOpacity: StudioState["setVisualizationLedOpacity"];
   setVisualizationBackground: StudioState["setVisualizationBackground"];
+  setVisualizationBackgroundVisible: StudioState["setVisualizationBackgroundVisible"];
   setVisualizationViewport: StudioState["setVisualizationViewport"];
   resetVisualizationViewport: StudioState["resetVisualizationViewport"];
   startVisualizationStrip: StudioState["startVisualizationStrip"];
@@ -79,6 +81,7 @@ export function LedViewCard({
   setVisualizationEnabled,
   setVisualizationLedOpacity,
   setVisualizationBackground,
+  setVisualizationBackgroundVisible,
   setVisualizationViewport,
   resetVisualizationViewport,
   startVisualizationStrip,
@@ -243,6 +246,15 @@ export function LedViewCard({
             }}
           />
         </label>
+        <label className="segmentCheckRow">
+          <input
+            type="checkbox"
+            checked={visualization.backgroundVisible}
+            disabled={!visualization.background}
+            onChange={(event) => setVisualizationBackgroundVisible(event.target.checked)}
+          />
+          <span>Show background</span>
+        </label>
 
         <button type="button" className="pillButton" onClick={startVisualizationStrip}>
           Start strip
@@ -305,7 +317,7 @@ export function LedViewCard({
         style={{ height: `${ledViewHeightPx}px`, cursor: visualization.drawing ? "crosshair" : panState ? "grabbing" : "grab" }}
       >
         <canvas ref={canvasRef} className="studioCanvas" style={{ height: "100%" }} />
-        {visualization.background ? (
+        {visualization.background && visualization.backgroundVisible ? (
           <img
             src={visualization.background.dataUrl}
             alt={visualization.background.name}
@@ -314,6 +326,9 @@ export function LedViewCard({
               transform: `translate(${visualization.viewport.panX * 100}%, ${visualization.viewport.panY * 100}%) scale(${visualization.viewport.zoom})`
             }}
           />
+        ) : null}
+        {visualization.background && !visualization.backgroundVisible ? (
+          <span className="ledOverlayHint">Background hidden (image retained)</span>
         ) : null}
         <svg className="ledOverlaySvg" width="100%" height="100%">
           {visualSvgLines.map((line) => (

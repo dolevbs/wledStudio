@@ -132,6 +132,7 @@ export interface VisualizationProject {
   ledOpacity: number;
   userLedOpacityOverride: boolean;
   background: BackgroundAsset | null;
+  backgroundVisible: boolean;
   viewport: VisualizationViewport;
   imageFit: VisualizationImageFit;
   strips: PaintedStrip[];

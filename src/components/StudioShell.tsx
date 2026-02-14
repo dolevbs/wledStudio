@@ -236,8 +236,8 @@ export function StudioShell() {
   }, [state.visualization.ledOpacity]);
 
   useEffect(() => {
-    rendererRef.current?.setBackgroundActive(Boolean(state.visualization.background));
-  }, [state.visualization.background]);
+    rendererRef.current?.setBackgroundActive(Boolean(state.visualization.background && state.visualization.backgroundVisible));
+  }, [state.visualization.background, state.visualization.backgroundVisible]);
 
   const onReset = () => {
     if (DEBUG_SIM) {
@@ -279,6 +279,7 @@ export function StudioShell() {
         setVisualizationEnabled={state.setVisualizationEnabled}
         setVisualizationLedOpacity={state.setVisualizationLedOpacity}
         setVisualizationBackground={state.setVisualizationBackground}
+        setVisualizationBackgroundVisible={state.setVisualizationBackgroundVisible}
         setVisualizationViewport={state.setVisualizationViewport}
         resetVisualizationViewport={state.resetVisualizationViewport}
         startVisualizationStrip={state.startVisualizationStrip}
