@@ -130,6 +130,7 @@ export interface VisualizationProject {
   schemaVersion: 2;
   enabled: boolean;
   ledOpacity: number;
+  userLedOpacityOverride: boolean;
   background: BackgroundAsset | null;
   viewport: VisualizationViewport;
   imageFit: VisualizationImageFit;

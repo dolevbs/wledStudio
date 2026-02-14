@@ -122,4 +122,27 @@ describe("visualization project store contract", () => {
     state = useStudioStore.getState();
     expect(state.visualization.ledOpacity).toBeCloseTo(1, 6);
   });
+
+  it("auto-boosts opacity on upload until user manually overrides it", () => {
+    const background = {
+      name: "test.png",
+      dataUrl: "data:image/png;base64,abc",
+      width: 100,
+      height: 100
+    };
+
+    let state = useStudioStore.getState();
+    state.setVisualizationBackground(background);
+    state = useStudioStore.getState();
+    expect(state.visualization.ledOpacity).toBeCloseTo(1, 6);
+    expect(state.visualization.userLedOpacityOverride).toBe(false);
+
+    state.setVisualizationLedOpacity(0.8);
+    state = useStudioStore.getState();
+    expect(state.visualization.userLedOpacityOverride).toBe(true);
+
+    state.setVisualizationBackground(background);
+    state = useStudioStore.getState();
+    expect(state.visualization.ledOpacity).toBeCloseTo(0.8, 6);
+  });
 });

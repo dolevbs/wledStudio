@@ -118,11 +118,10 @@ export function LedViewCard({
     return () => observer.disconnect();
   }, [onViewportMetrics]);
 
-  const visualSvgLines = useMemo(() => {
-    const committed = visualization.strips.map((strip) => ({ id: strip.id, points: strip.points }));
-    const draft = visualization.draftPoints.length >= 2 ? [{ id: "draft", points: visualization.draftPoints }] : [];
-    return committed.concat(draft);
-  }, [visualization]);
+  const visualSvgLines = useMemo(
+    () => (visualization.draftPoints.length >= 2 ? [{ id: "draft", points: visualization.draftPoints }] : []),
+    [visualization.draftPoints]
+  );
 
   const onOverlayClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!visualization.drawing) return;

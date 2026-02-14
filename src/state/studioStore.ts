@@ -134,6 +134,7 @@ const DEFAULT_VISUALIZATION: VisualizationProject = {
   schemaVersion: 2,
   enabled: false,
   ledOpacity: 0.8,
+  userLedOpacityOverride: false,
   background: null,
   viewport: identityViewport(),
   imageFit: {
@@ -1095,7 +1096,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({
       visualization: {
         ...state.visualization,
-        ledOpacity: Math.max(0, Math.min(1, Number(opacity) || 0.8))
+        ledOpacity: Math.max(0, Math.min(1, Number(opacity) || 0.8)),
+        userLedOpacityOverride: true
       }
     })),
 
@@ -1103,6 +1105,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({
       visualization: {
         ...state.visualization,
+        ledOpacity: background && !state.visualization.userLedOpacityOverride ? 1 : state.visualization.ledOpacity,
         background,
         viewport: identityViewport(),
         imageFit: {
@@ -1335,6 +1338,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         schemaVersion: 2,
         enabled: Boolean(project.enabled),
         ledOpacity: Math.max(0, Math.min(1, Number(project.ledOpacity ?? state.visualization.ledOpacity))),
+        userLedOpacityOverride:
+          typeof project.userLedOpacityOverride === "boolean" ? project.userLedOpacityOverride : typeof project.ledOpacity === "number",
         background: project.background ?? null,
         viewport,
         imageFit: imageFit.lockAspectRatio ? { ...imageFit, scaleY: imageFit.scaleX } : imageFit,
@@ -1353,6 +1358,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       schemaVersion: 2 as const,
       enabled: state.visualization.enabled,
       ledOpacity: state.visualization.ledOpacity,
+      userLedOpacityOverride: state.visualization.userLedOpacityOverride,
       background: state.visualization.background,
       viewport: state.visualization.viewport,
       imageFit: state.visualization.imageFit,

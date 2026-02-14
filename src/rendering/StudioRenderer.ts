@@ -11,6 +11,8 @@ export class StudioRenderer {
   private positions: Vec3[] = [];
   private frame: Uint8Array = new Uint8Array();
   private dpr = 1;
+  private cssWidth = 1;
+  private cssHeight = 1;
   private radius = 4;
   private scale = 1;
   private centerX = 0;
@@ -20,6 +22,7 @@ export class StudioRenderer {
   private overridePositions: Vec3[] | null = null;
   private overrideMode: OverrideMode = "world";
   private ledOpacity = 0.8;
+  private backgroundActive = false;
 
   constructor(canvas: HTMLCanvasElement, topology: StudioTopology) {
     this.canvas = canvas;
@@ -44,7 +47,7 @@ export class StudioRenderer {
 
   setOverridePositions(positions: Vec3[] | null, mode: OverrideMode = "world"): void {
     this.overridePositions = positions;
-    this.overrideMode = mode;
+    this.overrideMode = positions ? mode : "world";
     this.recomputeProjection();
   }
 
@@ -52,7 +55,17 @@ export class StudioRenderer {
     this.ledOpacity = Math.max(0, Math.min(1, opacity));
   }
 
+  setBackgroundActive(active: boolean): void {
+    this.backgroundActive = active;
+  }
+
   render(): void {
+    const currentCssWidth = Math.max(1, this.canvas.clientWidth);
+    const currentCssHeight = Math.max(1, this.canvas.clientHeight);
+    if (currentCssWidth !== this.cssWidth || currentCssHeight !== this.cssHeight) {
+      this.resize();
+    }
+
     const width = this.canvas.width;
     const height = this.canvas.height;
     const ctx = this.ctx;
@@ -63,17 +76,18 @@ export class StudioRenderer {
 
     const activePositions = this.overridePositions ?? this.positions;
     const count = Math.min(activePositions.length, Math.floor(this.frame.length / 3));
-    const cssWidth = Math.max(1, this.canvas.clientWidth);
-    const cssHeight = Math.max(1, this.canvas.clientHeight);
+    const cssWidth = this.cssWidth;
+    const cssHeight = this.cssHeight;
     for (let i = 0; i < count; i += 1) {
       const [x, y] = activePositions[i]!;
       const sx = this.overrideMode === "screen" ? x : this.overrideMode === "normalized" ? x * cssWidth : this.centerX + (x - this.worldMidX) * this.scale;
       const sy = this.overrideMode === "screen" ? y : this.overrideMode === "normalized" ? y * cssHeight : this.centerY - (y - this.worldMidY) * this.scale;
 
       const offset = i * 3;
-      const r = this.frame[offset] ?? 0;
-      const g = this.frame[offset + 1] ?? 0;
-      const b = this.frame[offset + 2] ?? 0;
+      const boost = this.backgroundActive ? 1.35 : 1;
+      const r = Math.max(0, Math.min(255, Math.round((this.frame[offset] ?? 0) * boost)));
+      const g = Math.max(0, Math.min(255, Math.round((this.frame[offset + 1] ?? 0) * boost)));
+      const b = Math.max(0, Math.min(255, Math.round((this.frame[offset + 2] ?? 0) * boost)));
       ctx.globalAlpha = this.ledOpacity;
 
       if (r === 0 && g === 0 && b === 0) {
@@ -83,8 +97,19 @@ export class StudioRenderer {
       }
 
       ctx.beginPath();
-      ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+      if (this.backgroundActive) {
+        ctx.shadowColor = "rgba(255, 255, 255, 0.45)";
+        ctx.shadowBlur = 6;
+      } else {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+      }
+      ctx.arc(sx, sy, this.radius + (this.backgroundActive ? 0.8 : 0), 0, Math.PI * 2);
       ctx.fill();
+      if (this.backgroundActive) {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -96,13 +121,13 @@ export class StudioRenderer {
 
     this.canvas.width = Math.floor(cssWidth * this.dpr);
     this.canvas.height = Math.floor(cssHeight * this.dpr);
-    this.canvas.style.width = `${cssWidth}px`;
-    this.canvas.style.height = `${cssHeight}px`;
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.scale(this.dpr, this.dpr);
 
     this.centerX = cssWidth / 2;
     this.centerY = cssHeight / 2;
+    this.cssWidth = cssWidth;
+    this.cssHeight = cssHeight;
     this.recomputeProjection();
   }
 

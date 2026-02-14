@@ -22,6 +22,8 @@ export function StudioShell() {
   const frameCountRef = useRef(0);
   const resizeVersionRef = useRef(0);
   const resizeRafRef = useRef<number | null>(null);
+  const lastResizeMismatchLogRef = useRef(0);
+  const viewportMetricsRef = useRef<{ width: number; height: number }>({ width: 1, height: 1 });
   const [diagLines, setDiagLines] = useState<string[]>([]);
   const [viewportMetrics, setViewportMetrics] = useState<{ width: number; height: number }>({ width: 1, height: 1 });
 
@@ -49,12 +51,35 @@ export function StudioShell() {
     (metrics: { width: number; height: number }) => {
       setViewportMetrics((prev) => {
         if (prev.width === metrics.width && prev.height === metrics.height) return prev;
+        viewportMetricsRef.current = metrics;
         return metrics;
       });
       scheduleRendererResize();
     },
     [scheduleRendererResize]
   );
+
+  useEffect(() => {
+    viewportMetricsRef.current = viewportMetrics;
+  }, [viewportMetrics]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const widthDiff = Math.abs(canvas.clientWidth - viewportMetrics.width);
+    const heightDiff = Math.abs(canvas.clientHeight - viewportMetrics.height);
+    if (widthDiff <= 1 && heightDiff <= 1) return;
+    const now = Date.now();
+    if (DEBUG_SIM && now - lastResizeMismatchLogRef.current > 200) {
+      pushDiag("[StudioShell] viewport/canvas mismatch detected", {
+        canvasClient: { width: canvas.clientWidth, height: canvas.clientHeight },
+        viewportMetrics
+      });
+      lastResizeMismatchLogRef.current = now;
+    }
+    scheduleRendererResize();
+  }, [viewportMetrics, scheduleRendererResize]);
 
   useEffect(() => {
     if (!canvasRef.current) {
@@ -119,16 +144,26 @@ export function StudioShell() {
 
     workerRef.current = worker;
 
-    const resize = () => scheduleRendererResize();
-    const canvasResizeObserver = new ResizeObserver(() => {
-      scheduleRendererResize();
-    });
-    canvasResizeObserver.observe(canvasRef.current);
-    window.addEventListener("resize", resize);
-
     let animationFrame = 0;
     const renderLoop = () => {
       const frameVersion = resizeVersionRef.current;
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const metrics = viewportMetricsRef.current;
+        const widthDiff = Math.abs(canvas.clientWidth - metrics.width);
+        const heightDiff = Math.abs(canvas.clientHeight - metrics.height);
+        if (widthDiff > 1 || heightDiff > 1) {
+          const now = Date.now();
+          if (DEBUG_SIM && now - lastResizeMismatchLogRef.current > 200) {
+            pushDiag("[StudioShell] render-loop resize self-heal", {
+              canvasClient: { width: canvas.clientWidth, height: canvas.clientHeight },
+              viewportMetrics: metrics
+            });
+            lastResizeMismatchLogRef.current = now;
+          }
+          scheduleRendererResize();
+        }
+      }
       rendererRef.current?.updateFrame(frameRef.current);
       if (frameVersion !== resizeVersionRef.current) {
         animationFrame = window.requestAnimationFrame(renderLoop);
@@ -148,8 +183,6 @@ export function StudioShell() {
         window.cancelAnimationFrame(resizeRafRef.current);
         resizeRafRef.current = null;
       }
-      window.removeEventListener("resize", resize);
-      canvasResizeObserver.disconnect();
       worker.terminate();
       rendererRef.current?.dispose();
       rendererRef.current = null;
@@ -201,6 +234,10 @@ export function StudioShell() {
   useEffect(() => {
     rendererRef.current?.setLedOpacity(state.visualization.ledOpacity);
   }, [state.visualization.ledOpacity]);
+
+  useEffect(() => {
+    rendererRef.current?.setBackgroundActive(Boolean(state.visualization.background));
+  }, [state.visualization.background]);
 
   const onReset = () => {
     if (DEBUG_SIM) {
