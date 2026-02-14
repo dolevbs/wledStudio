@@ -4,10 +4,11 @@ interface TopBarProps {
   running: boolean;
   onToggleRunning: () => void;
   onResetClock: () => void;
+  onResetState: () => void;
   onExport: () => void;
 }
 
-export function TopBar({ running, onToggleRunning, onResetClock, onExport }: TopBarProps) {
+export function TopBar({ running, onToggleRunning, onResetClock, onResetState, onExport }: TopBarProps) {
   return (
     <header className="topBar panelShell">
       <div className="brandMark">
@@ -19,6 +20,9 @@ export function TopBar({ running, onToggleRunning, onResetClock, onExport }: Top
         </button>
         <button type="button" className="pillButton" onClick={onResetClock}>
           Reset Clock
+        </button>
+        <button type="button" className="pillButton" onClick={onResetState}>
+          Reset State
         </button>
         <button type="button" className="pillButton" onClick={onExport}>
           Export

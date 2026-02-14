@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { useStudioStore } from "../src/state/studioStore";
 
-const snapshot = useStudioStore.getState();
-
 afterEach(() => {
-  useStudioStore.setState(snapshot, true);
+  useStudioStore.getState().resetState();
 });
 
 describe("visualization project store contract", () => {

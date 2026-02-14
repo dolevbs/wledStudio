@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 import type { ColorSchemeOption } from "@/config/simulationOptions";
 import { WLED_EFFECT_CATALOG } from "@/config/wledEffectCatalog";
@@ -59,6 +60,7 @@ export interface StudioState {
   applyRawJson: () => string | null;
   setRunning: (running: boolean) => void;
   resetClock: () => void;
+  resetState: () => void;
   setFrame: (frame: Uint8Array, simulatedMillis: number, error: string) => void;
   replaceTopology: (topology: StudioTopology) => void;
   replaceCommand: (command: WledJsonEnvelope, warnings?: string[]) => void;
@@ -149,6 +151,29 @@ const DEFAULT_VISUALIZATION: VisualizationProject = {
   draftPoints: [],
   drawing: false
 };
+
+export const STUDIO_STATE_STORAGE_KEY = "wled-studio:state:v1";
+const STUDIO_STATE_STORAGE_VERSION = 1;
+
+const memoryStorage = (() => {
+  const store = new Map<string, string>();
+  return {
+    getItem: (name: string) => store.get(name) ?? null,
+    setItem: (name: string, value: string) => {
+      store.set(name, value);
+    },
+    removeItem: (name: string) => {
+      store.delete(name);
+    }
+  } satisfies StateStorage;
+})();
+
+const studioStateStorage = createJSONStorage(() => {
+  if (typeof window !== "undefined" && window.localStorage) {
+    return window.localStorage;
+  }
+  return memoryStorage;
+});
 
 function stringifyCommand(command: WledJsonEnvelope): string {
   return JSON.stringify(command, null, 2);
@@ -402,34 +427,88 @@ function applyVisualizationSync(state: StudioState, visualization: Visualization
   };
 }
 
-export const useStudioStore = create<StudioState>((set, get) => ({
-  topology: DEFAULT_TOPOLOGY,
-  simulation: DEFAULT_SIMULATION,
-  command: DEFAULT_COMMAND,
-  presets: {
-    entries: {
-      "1": {
-        n: "Studio Export",
-        on: DEFAULT_COMMAND.on,
-        bri: DEFAULT_COMMAND.bri,
-        seg: cloneCommand(DEFAULT_COMMAND).seg
-      }
+type StudioStateCore = Pick<
+  StudioState,
+  | "topology"
+  | "simulation"
+  | "command"
+  | "presets"
+  | "visualization"
+  | "ui"
+  | "rawJson"
+  | "warnings"
+  | "lastError"
+  | "frame"
+  | "simulatedMillis"
+>;
+
+type PersistedStudioState = Pick<
+  StudioStateCore,
+  "topology" | "simulation" | "command" | "presets" | "visualization" | "ui" | "rawJson"
+>;
+
+function createInitialCoreState(): StudioStateCore {
+  const topology: StudioTopology = { ...DEFAULT_TOPOLOGY, gaps: DEFAULT_TOPOLOGY.gaps.slice() };
+  const command = cloneCommand(DEFAULT_COMMAND);
+  return {
+    topology,
+    simulation: { ...DEFAULT_SIMULATION },
+    command,
+    presets: {
+      entries: {
+        "1": {
+          n: "Studio Export",
+          on: command.on,
+          bri: command.bri,
+          seg: cloneCommand(command).seg
+        }
+      },
+      currentPresetId: null,
+      activePlaylist: null
     },
-    currentPresetId: null,
-    activePlaylist: null
-  },
-  visualization: DEFAULT_VISUALIZATION,
-  ui: {
-    drawerOpen: false,
-    selectedSegmentIndex: 0,
-    ledViewHeightPx: LED_VIEW_PRESET_HEIGHTS.m,
-    ledViewSizePreset: "m"
-  },
-  rawJson: stringifyCommand(DEFAULT_COMMAND),
-  warnings: [],
-  lastError: "",
-  frame: new Uint8Array(DEFAULT_TOPOLOGY.ledCount * 3),
-  simulatedMillis: 0,
+    visualization: {
+      ...DEFAULT_VISUALIZATION,
+      viewport: identityViewport(),
+      imageFit: {
+        ...DEFAULT_VISUALIZATION.imageFit
+      },
+      strips: [],
+      links: [],
+      derivedIndexMap: [],
+      derivedPositions: [],
+      draftPoints: []
+    },
+    ui: {
+      drawerOpen: false,
+      selectedSegmentIndex: 0,
+      ledViewHeightPx: LED_VIEW_PRESET_HEIGHTS.m,
+      ledViewSizePreset: "m"
+    },
+    rawJson: stringifyCommand(command),
+    warnings: [],
+    lastError: "",
+    frame: new Uint8Array(topology.ledCount * 3),
+    simulatedMillis: 0
+  };
+}
+
+function partializeStudioState(state: StudioState): PersistedStudioState {
+  // Keep timeline/render diagnostics transient so a reopened session starts clean.
+  return {
+    topology: state.topology,
+    simulation: state.simulation,
+    command: state.command,
+    presets: state.presets,
+    visualization: state.visualization,
+    ui: state.ui,
+    rawJson: state.rawJson
+  };
+}
+
+export const useStudioStore = create<StudioState>()(
+  persist(
+    (set, get) => ({
+      ...createInitialCoreState(),
 
   setMode: (mode) =>
     set((state) => {
@@ -775,6 +854,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     })),
 
   resetClock: () => set({ simulatedMillis: 0 }),
+
+  resetState: () => {
+    set(createInitialCoreState());
+    useStudioStore.persist.clearStorage();
+  },
 
   setFrame: (frame, simulatedMillis, error) =>
     set({
@@ -1352,20 +1436,40 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return applyVisualizationSync(state, visualization);
     }),
 
-  exportVisualizationProject: () => {
-    const state = get();
-    const payload = {
-      schemaVersion: 2 as const,
-      enabled: state.visualization.enabled,
-      ledOpacity: state.visualization.ledOpacity,
-      userLedOpacityOverride: state.visualization.userLedOpacityOverride,
-      background: state.visualization.background,
-      viewport: state.visualization.viewport,
-      imageFit: state.visualization.imageFit,
-      strips: state.visualization.strips,
-      links: state.visualization.links,
-      derivedIndexMap: state.visualization.derivedIndexMap
-    };
-    return JSON.stringify(payload, null, 2);
-  }
-}));
+      exportVisualizationProject: () => {
+        const state = get();
+        const payload = {
+          schemaVersion: 2 as const,
+          enabled: state.visualization.enabled,
+          ledOpacity: state.visualization.ledOpacity,
+          userLedOpacityOverride: state.visualization.userLedOpacityOverride,
+          background: state.visualization.background,
+          viewport: state.visualization.viewport,
+          imageFit: state.visualization.imageFit,
+          strips: state.visualization.strips,
+          links: state.visualization.links,
+          derivedIndexMap: state.visualization.derivedIndexMap
+        };
+        return JSON.stringify(payload, null, 2);
+      }
+    }),
+    {
+      name: STUDIO_STATE_STORAGE_KEY,
+      version: STUDIO_STATE_STORAGE_VERSION,
+      storage: studioStateStorage,
+      partialize: partializeStudioState,
+      migrate: (persistedState, version) => {
+        if (version !== STUDIO_STATE_STORAGE_VERSION) {
+          return {
+            ...createInitialCoreState(),
+            ...(persistedState as PersistedStudioState)
+          } as StudioState;
+        }
+        return {
+          ...createInitialCoreState(),
+          ...(persistedState as PersistedStudioState)
+        } as StudioState;
+      }
+    }
+  )
+);

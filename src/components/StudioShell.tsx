@@ -247,12 +247,21 @@ export function StudioShell() {
     workerRef.current?.postMessage({ type: "reset" });
   };
 
+  const onResetState = () => {
+    if (DEBUG_SIM) {
+      pushDiag("[StudioShell] reset state");
+    }
+    state.resetState();
+    workerRef.current?.postMessage({ type: "reset" });
+  };
+
   return (
     <main className="studioDashboard">
       <TopBar
         running={state.simulation.running}
         onToggleRunning={() => state.setRunning(!state.simulation.running)}
         onResetClock={onReset}
+        onResetState={onResetState}
         onExport={() => exportCfgAndPresets(state.topology, state.command, state.presets)}
       />
 
